@@ -1,5 +1,5 @@
 // sw.js
-const CACHE_NAME = '0.0.9';
+const CACHE_NAME = '0.0.3';
 
 const urlsToCache = [
     './',
@@ -46,6 +46,7 @@ const urlsToCache = [
     './style/board.webp', './style/shadow.webp', './style/dot.webp', './style/from.webp', './style/selection.webp', './style/to.webp',
     './style/br.webp', './style/bn.webp', './style/bb.webp', './style/ba.webp', './style/bk.webp', './style/bc.webp', './style/bp.webp',
     './style/wr.webp', './style/wn.webp', './style/wb.webp', './style/wa.webp', './style/wk.webp', './style/wc.webp', './style/wp.webp',
+    './style/blind_b.webp', './style/blind_w.webp',
     './sound/check.mp3', './sound/eat.mp3', './sound/lose.mp3', './sound/move.mp3'
 ];
 

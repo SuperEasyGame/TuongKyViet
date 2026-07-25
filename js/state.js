@@ -65,6 +65,7 @@ export const state = {
     autoPlayInterval: null,
     isAutoPlaying: false,
     isAnimating: false,
+    isPeeking: false,
     pendingAIMove: null,
     
     pvLines: [],

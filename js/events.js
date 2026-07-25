@@ -311,6 +311,7 @@ export function initEvents() {
     const menuAnalyze = document.getElementById('menu-analyze');
     if(menuAnalyze) menuAnalyze.onclick = () => { switchMode('analyze'); };
     
+    // ====== Đấu Vs Bot ======
     const menuBot = document.getElementById('menu-bot');
     if(menuBot) {
         // THÊM ASYNC VÀO ĐÂY
@@ -336,7 +337,6 @@ export function initEvents() {
             }
         };
     }
-
     // Modal Thiết lập Ván đấu BOT
     document.getElementById('btn-setup-cancel').onclick = () => {
         closeModal('vsbot-setup-modal');
@@ -366,7 +366,6 @@ export function initEvents() {
             import('./game.js').then(module => module.updateVsBotToolButtons());
         }
     };
-
     document.getElementById('btn-setup-confirm').onclick = () => {
         let fenInput = document.getElementById('setup-bot-fen').value.trim();
         if (fenInput.includes("moves")) {
@@ -409,15 +408,38 @@ export function initEvents() {
             switchMode('vsbot', fenInput); 
         }
     };
-    
+    // =========================
+
+    const menuBlind = document.getElementById('menu-blind');
+    if(menuBlind) {
+        menuBlind.onclick = async () => { 
+            try {
+                // Kiểm tra xem Workspace của Cờ Mù trong IndexedDB có dữ liệu không
+                const workspace = await getWorkspace('blind_workspace');
+                
+                if (workspace && workspace.gameList && workspace.gameList.length > 0) {
+                    switchMode('blind'); // Load ván cũ
+                } else {
+                    switchMode('blind', START_FEN); // Khởi tạo ván mới
+                }
+            } catch (e) {
+                switchMode('blind', START_FEN);
+            }
+        };
+    }
+
     const menuPuzzle = document.getElementById('menu-puzzle');
-    if(menuPuzzle) menuPuzzle.onclick = () => { switchMode('puzzle'); };
+    if(menuPuzzle) menuPuzzle.onclick = () => { 
+        closeModal('main-menu-modal'); 
+        showToast("Tính năng đang được phát triển!");  
+    };
     
-    const menuOpening = document.getElementById('menu-opening');
-    if(menuOpening) menuOpening.onclick = () => { switchMode('opening'); };
-    
-    const menuReadbook = document.getElementById('menu-readbook');
-    if(menuReadbook) menuReadbook.onclick = () => { closeModal('main-menu-modal'); showToast("Tính năng 'Đọc Kỳ Phổ' đang phát triển!"); };
+    const menuOpening = document.getElementById('menu-memorize');
+    if(menuOpening) menuOpening.onclick = () => { 
+        closeModal('main-menu-modal'); 
+        showToast("Tính năng đang được phát triển!"); 
+     };
+
     
     const menuSettings = document.getElementById('menu-settings');
     if(menuSettings) menuSettings.onclick = () => { 
@@ -573,6 +595,29 @@ export function initEvents() {
             } else { 
                 document.getElementById('chess-board-area').classList.remove('board-flipped'); btnFlip.classList.remove('tool-active');
             }
+        };
+    }
+
+    const btnPeek = document.getElementById('btn-peek');
+    if (btnPeek) {
+        btnPeek.onclick = () => {
+            state.isPeeking = !state.isPeeking;
+            const eyeClosed = document.getElementById('icon-eye-closed');
+            const eyeOpen = document.getElementById('icon-eye-open');
+            
+            if (state.isPeeking) {
+                btnPeek.classList.add('tool-active');
+                if (eyeClosed) eyeClosed.style.display = 'none';
+                if (eyeOpen) eyeOpen.style.display = 'block';
+            } else {
+                btnPeek.classList.remove('tool-active');
+                if (eyeClosed) eyeClosed.style.display = 'block';
+                if (eyeOpen) eyeOpen.style.display = 'none';
+            }
+            
+            import('./board.js').then(module => {
+                module.renderBoardFull(state.currentSituation);
+            });
         };
     }
 

@@ -128,7 +128,10 @@ export async function saveGameState() {
             ptrId: state.currentNode.id
         };
 
-        const dbKey = (state.appMode === 'vsbot') ? 'vsbot_workspace' : 'analyze_workspace';
+        let dbKey = 'analyze_workspace';
+        if (state.appMode === 'vsbot') dbKey = 'vsbot_workspace';
+        else if (state.appMode === 'blind') dbKey = 'blind_workspace';
+        
         await saveWorkspace(dbKey, workspaceData);
 
         storage.saveSystem(state.appSettings);

@@ -94,6 +94,16 @@ export function turnOnEditMode(btn) {
     
     if (state.isAnalyzing) document.getElementById('btn-analyze').click();
     forceStopAIPlayers();
+
+    if (state.appMode === 'blind') {
+        state.isPeeking = true;
+        const btnPeek = document.getElementById('btn-peek');
+        if (btnPeek) {
+            btnPeek.classList.add('tool-active');
+            document.getElementById('icon-eye-closed').style.display = 'none';
+            document.getElementById('icon-eye-open').style.display = 'block';
+        }
+    }
     
     state.preEditFenBase = vschess.situationToFen(state.currentSituation).split(" ")[0];
     state.preEditTurn = state.currentNode.fen.split(" ")[1] || 'w';
@@ -135,6 +145,16 @@ export function finishEditing(btn) {
     state.selectedPalettePiece = null;
     state.selectedBoardPiece = null;
     document.querySelectorAll('.piece-palette img').forEach(img => img.classList.remove('piece-selected'));
+
+    if (state.appMode === 'blind') {
+        state.isPeeking = false;
+        const btnPeek = document.getElementById('btn-peek');
+        if (btnPeek) {
+            btnPeek.classList.remove('tool-active');
+            document.getElementById('icon-eye-closed').style.display = 'block';
+            document.getElementById('icon-eye-open').style.display = 'none';
+        }
+    }
     
     if (newFenBase !== state.preEditFenBase || state.editTurn !== state.preEditTurn) {
         if (state.appMode === 'vsbot') {

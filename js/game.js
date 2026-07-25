@@ -67,6 +67,24 @@ function updateBotTitleBoard() {
     `;
 }
 
+export function updateBlindTurnUI() {
+    if (state.appMode !== 'blind') return;
+    
+    const turnTextEl = document.getElementById('blind-turn-text');
+    if (!turnTextEl) return;
+    
+    // Kiểm tra xem lượt đi hiện tại là Đỏ (w) hay Đen (b)
+    const isRedTurn = state.currentNode.fen.split(" ")[1] === "w";
+    
+    if (isRedTurn) {
+        turnTextEl.innerText = "Bên Đỏ";
+        turnTextEl.style.color = "#cc0000"; // Màu đỏ tươi
+    } else {
+        turnTextEl.innerText = "Bên Đen";
+        turnTextEl.style.color = "#000000"; // Màu đen đặc
+    }
+}
+
 // js/game.js
 
 // Hàm nối dây (Wire Tree) siêu tốc - 0 mili-giây
@@ -132,6 +150,7 @@ export function loadGameFromList(index, targetPtrId = null) {
     renderBoardFull(state.currentSituation); 
     if(!state.isEditMode) renderMoveHistory();
     renderGameList(false);
+    updateBlindTurnUI();
 }
 
 export function updateVsBotToolButtons() {
@@ -188,30 +207,66 @@ function applyAutoBoardFlip() {
 }
 
 export async function initGame(fenString = START_FEN, loadFromStorage = false) {
+     if (!state.isEditMode) {
+        state.isPeeking = false; 
+        const btnPeek = document.getElementById('btn-peek');
+        const eyeClosed = document.getElementById('icon-eye-closed');
+        const eyeOpen = document.getElementById('icon-eye-open');
+        if (btnPeek) btnPeek.classList.remove('tool-active');
+        if (eyeClosed) eyeClosed.style.display = 'block';
+        if (eyeOpen) eyeOpen.style.display = 'none';
+    } else {
+        // NẾU ĐANG TRONG XẾP QUÂN, ĐẢM BẢO MẮT LUÔN MỞ
+        state.isPeeking = true;
+        const btnPeek = document.getElementById('btn-peek');
+        const eyeClosed = document.getElementById('icon-eye-closed');
+        const eyeOpen = document.getElementById('icon-eye-open');
+        if (btnPeek) btnPeek.classList.add('tool-active');
+        if (eyeClosed) eyeClosed.style.display = 'none';
+        if (eyeOpen) eyeOpen.style.display = 'block';
+    }
+
     const titleTabBtn = document.querySelector('.ai-tab-btn[data-tab="title"]');
     const titleHeader = document.getElementById('tab-title');
     if (titleTabBtn && titleHeader) {
         titleTabBtn.click();
         const modeTitleMap = {
-            "analyze": "CHẾ ĐỘ PHÂN TÍCH", "vsbot": "ĐẤU VS BOT",
-            "puzzle": "GIẢI BÀI TẬP", "opening": "LUYỆN KHAI CUỘC"
+            "analyze": "CHẾ ĐỘ PHÂN TÍCH", 
+            "vsbot": "ĐẤU VS BOT",
+            "blind": "CHẾ ĐỘ CỜ MÙ",
+            "puzzle": "GIẢI BÀI TẬP", 
+            "opening": "LUYỆN KHAI CUỘC"
         };
-        titleHeader.innerHTML = `<strong style="font-size: 18px; color: #333; display: block; width: 100%;">${modeTitleMap[state.appMode] || "CHẾ ĐỘ PHÂN TÍCH"}</strong>`;
+        titleHeader.innerHTML = `
+            <strong style="font-size: 17px; color: #333; display: block; width: 100%;">${modeTitleMap[state.appMode] || "CHẾ ĐỘ PHÂN TÍCH"}</strong>
+            
+            <!-- Khôi phục lại khung Lượt đi bị xóa -->
+            <div id="blind-turn-indicator" class="blind-only" style="display: none; margin-top: 15px; font-size: 16px; font-weight: bold; color: #555;">
+                Lượt đi: <span id="blind-turn-text">Bên Đỏ</span>
+            </div>
+        `;
     }
     
+    // XỬ LÝ CLASS BODY CHO CHẾ ĐỘ MỚI
+    document.body.classList.remove('mode-vsbot', 'mode-blind');
+    const navBar = document.getElementById('nav-bar');
+
     if (state.appMode === 'vsbot') {
         document.body.classList.add('mode-vsbot');
-        const navBar = document.getElementById('nav-bar');
         if (navBar) { navBar.style.opacity = '0.5'; navBar.style.pointerEvents = 'none'; }
+    } else if (state.appMode === 'blind') {
+        document.body.classList.add('mode-blind'); // Kích hoạt CSS Cờ mù
+        if (navBar) { navBar.style.opacity = '1'; navBar.style.pointerEvents = 'auto'; }
     } else {
-        document.body.classList.remove('mode-vsbot');
-        const navBar = document.getElementById('nav-bar');
         if (navBar) { navBar.style.opacity = '1'; navBar.style.pointerEvents = 'auto'; }
     }
 
     if (loadFromStorage) {
         try {
-            const dbKey = (state.appMode === 'vsbot') ? 'vsbot_workspace' : 'analyze_workspace';
+            let dbKey = 'analyze_workspace';
+            if (state.appMode === 'vsbot') dbKey = 'vsbot_workspace';
+            else if (state.appMode === 'blind') dbKey = 'blind_workspace';
+
             const workspace = await getWorkspace(dbKey);
             
             if (workspace && workspace.gameList && workspace.gameList.length > 0) {
@@ -228,6 +283,7 @@ export async function initGame(fenString = START_FEN, loadFromStorage = false) {
                 if (!state.isEditMode) {
                     if (!state.engineModule) initPikafish(); else triggerEngineEvaluation();
                 }
+                updateBlindTurnUI();
                 return; // Thoát hàm nếu load DB thành công
             }
         } catch (e) { console.error("Lỗi đọc IndexedDB", e); }
@@ -274,6 +330,7 @@ export async function initGame(fenString = START_FEN, loadFromStorage = false) {
     if (!state.isEditMode) {
         if (!state.engineModule) initPikafish(); else triggerEngineEvaluation();
     }
+    updateBlindTurnUI(); 
 }
 
 export function handleSquareClick(x, y, iccsPos) {
@@ -480,6 +537,7 @@ export function executeMove(moveCommand, isJump = false, isReverse = false) {
         checkGameOver();
         if (!isJump) triggerEngineEvaluation(); 
         updateVsBotToolButtons(); 
+        updateBlindTurnUI();
     }, useAnim ? 150 : 0); 
 }
 
@@ -520,6 +578,7 @@ export function executeForwardStep(targetNode) {
         checkGameOver(); 
         triggerEngineEvaluation(); 
         updateVsBotToolButtons();
+        updateBlindTurnUI();
     }, useAnim ? 150 : 0);
 }
 
@@ -554,6 +613,7 @@ export function executeReverseStep(nodeToReverse) {
         state.isAnimating = false; 
         triggerEngineEvaluation();
         updateVsBotToolButtons();
+        updateBlindTurnUI();
     }, useAnim ? 150 : 0);
 }
 
@@ -593,7 +653,7 @@ export function instantJumpToNode(targetNode) {
     state.currentStepNum = step;
 
     renderMoveHistory(); saveGameState(); updateVsBotToolButtons();
-    triggerEngineEvaluation();
+    triggerEngineEvaluation(); updateBlindTurnUI();
 }
 
 export function jumpToNode(targetNode) {
@@ -676,6 +736,8 @@ export function ensureNodeData(node) {
 }
 
 export function syncNavbarWidth() {
+    if (window.innerHeight < 100) return; 
+
     const wrapper = document.querySelector('.board-wrapper');
     const boardArea = document.getElementById('chess-board-area');
     const navBar = document.getElementById('nav-bar');
@@ -688,6 +750,8 @@ export function syncNavbarWidth() {
     wrapper.style.transform = 'scale(1)';
     wrapper.style.marginBottom = '0px';
 
+    if (isMobile) wrapper.style.transformOrigin = 'top center';
+    
     if (isMobile) {
         wrapper.style.width = '100%';
         const availableHeight = window.innerHeight - 180 - 50; 

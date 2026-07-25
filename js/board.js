@@ -22,7 +22,7 @@ const TO_SCALE = 1.1;             // Điểm đến nước đi trước (to.web
 export function preloadImages() {
     return new Promise((resolve) => {
         const pieceKeys = Object.keys(PIECE_MAP);
-        const extraImages = ['shadow', 'dot', 'from', 'to', 'selection']; // Các ảnh hiệu ứng
+        const extraImages = ['shadow', 'dot', 'from', 'to', 'selection', 'blind_b', 'blind_w']; // Các ảnh hiệu ứng
         
         let loadedCount = 0;
         const totalImages = pieceKeys.length + extraImages.length; 
@@ -240,7 +240,7 @@ function drawSelectedPiece() {
     const pieceCode = state.currentSituation[sIndex];
     if (pieceCode <= 1) return;
 
-    const imgPiece = imageCache[vschess.n2f[pieceCode]];
+    const imgPiece = getPieceImage(pieceCode);
     const imgSelection = imageCache['selection'];
     if (!imgPiece) return;
 
@@ -260,6 +260,7 @@ function drawSelectedPiece() {
 }
 
 function drawLegalMoveDots() {
+    if (state.appMode === 'blind' && !state.isPeeking) return;
     if (!state.legalMoves || state.legalMoves.length === 0) return;
     
     const imgDot = imageCache['dot'];
@@ -278,6 +279,17 @@ function drawLegalMoveDots() {
         // nên chấm dot.webp này sẽ tự động NẰM ĐÈ LÊN TRÊN quân cờ nếu đó là nước ăn quân!
         ctx.drawImage(imgDot, Math.round(p.cx) - halfDSize, Math.round(p.cy) - halfDSize, dSize, dSize);
     });
+}
+
+// Trả về ảnh của quân cờ tùy theo chế độ (Thường hoặc Mù)
+function getPieceImage(pieceCode) {
+    if (state.appMode === 'blind' && !state.isPeeking) {
+        const char = vschess.n2f[pieceCode];
+        // Ký tự viết hoa (R, N, B, A, K, C, P) là quân Đỏ
+        const isRed = char === char.toUpperCase() && char !== '*'; 
+        return isRed ? imageCache['blind_w'] : imageCache['blind_b'];
+    }
+    return imageCache[vschess.n2f[pieceCode]];
 }
 
 function drawStaticPieces() {
@@ -304,7 +316,7 @@ function drawStaticPieces() {
             if (logicalIccs === selectedIccs) continue;
 
             const boardNum = vschess.i2b[logicalIccs];
-            const img = imageCache[vschess.n2f[pieceCode]];
+            const img = getPieceImage(pieceCode);
             if (img) {
                 const coords = getCanvasCoords(boardNum % 9, Math.floor(boardNum / 9));
                 const cx = Math.round(coords.cx);
@@ -349,7 +361,7 @@ function drawAnimatingPiece() {
     const currentX = Math.round(startX + (endX - startX) * easeOut);
     const currentY = Math.round(startY + (endY - startY) * easeOut);
 
-    const img = imageCache[vschess.n2f[pieceCode]];
+    const img = getPieceImage(pieceCode);
     if (img) {
         const pSize = Math.round(pieceSize);
         const halfSize = Math.round(pSize / 2);

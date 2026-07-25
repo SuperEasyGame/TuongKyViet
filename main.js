@@ -22,8 +22,10 @@ window.onload = async () => {
     // Lấy thông tin phiên bản từ file Service Worker để in ra Cài đặt
     fetchAppVersion();
 
-    setTimeout(() => window.dispatchEvent(new Event('resize')), 100);
-    setTimeout(() => window.dispatchEvent(new Event('resize')), 500);
+    const resizeObserver = new ResizeObserver(() => {
+        window.dispatchEvent(new Event('resize'));
+    });
+    resizeObserver.observe(document.body);
 };
 
 // Đăng ký Service Worker
