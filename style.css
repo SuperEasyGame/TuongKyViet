@@ -798,3 +798,47 @@ body.mode-blind .hide-on-blind { display: none !important; }
 body.mode-blind .blind-only { display: block !important; }
 body.mode-blind .tool-btn-outer.blind-only { display: flex !important; }
 body.mode-blind #panel-ai { flex: 1 1 100%; }
+
+/* =========================================================
+   THƯ VIỆN VÁN ĐẤU (LIBRARY VIRTUAL LIST)
+   ========================================================= */
+.lib-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 50px; /* Cố định chiều cao cho Virtual List */
+    padding: 0 13px 0 17px;
+    border-bottom: 1px solid #cecece;
+    background: #fff;
+    cursor: pointer;
+    box-sizing: border-box;
+    transition: background 0.2s;
+}
+.lib-item:hover { background-color: #f5f5f5; }
+.lib-item:active { background-color: #e8e8e8; }
+.lib-title {
+    flex: 1;
+    font-size: 15px;
+    font-weight: bold;
+    color: #333;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-align: left;
+    padding-right: 10px;
+}
+.lib-btn-del {
+    width: 36px;
+    height: 36px;
+    background: transparent;
+    border: 1px solid transparent;
+    color: #ff4d4f;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+    transition: all 0.2s;
+}
+.lib-btn-del:hover { background: #ffebee; border-color: #ffcdd2; }
+.lib-btn-del:active { transform: scale(0.9); }

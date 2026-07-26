@@ -383,7 +383,12 @@ function drawAnimatingPiece() {
 }
 
 function drawBestMoveArrowCanvas() {
-    if (state.pvLines.length === 0 || state.isAnimating || state.isEditMode || state.appMode === 'vsbot') return;
+    if (state.pvLines.length === 0 || state.isAnimating || state.isEditMode || state.appMode === 'vsbot' || state.appMode === 'blind') return;
+
+    // Kiểm tra xem Động cơ AI có đang được bật hay không (Phân tích, Máy cầm Đỏ, Máy cầm Đen)
+    const isAILive = state.isAnalyzing || state.aiPlaysRed || state.aiPlaysBlack;
+    // NẾU Cài đặt Tắt Mũi tên NHƯNG AI đã bị tắt -> Vẫn vẽ mũi tên đóng băng cuối cùng!
+    if (!state.appSettings.arrows && isAILive) return;
 
     state.pvLines.forEach(line => {
         if (!line) return;

@@ -42,3 +42,15 @@ export function getWorkspace(key) {
         request.onerror = () => reject(request.error);
     });
 }
+
+// Xóa 1 dữ liệu bất kỳ bằng key
+export function deleteWorkspace(key) {
+    return new Promise(async (resolve, reject) => {
+        const db = await initDB();
+        const tx = db.transaction(STORE_NAME, 'readwrite');
+        const store = tx.objectStore(STORE_NAME);
+        const request = store.delete(key);
+        request.onsuccess = () => resolve();
+        request.onerror = () => reject(request.error);
+    });
+}

@@ -1,9 +1,9 @@
 // js/events.js
 import { state, storage } from './state.js';
-import { getWorkspace } from './db.js';
+import { getWorkspace , saveWorkspace } from './db.js';
 import { toggleAutoPlay, forceStopAIPlayers, jumpToNode, initGame, loadGameFromList } from './game.js';
 import { triggerEngineEvaluation, applyEngineSettings, getDeviceTier } from './engine.js';
-import { openModal, closeModal, updateTurnToggleUI, showLoading, hideLoading, showToast } from './ui.js';
+import { openModal, closeModal, updateTurnToggleUI, showLoading, hideLoading, showToast, renderLibraryList, confirmDeleteLibraryItem } from './ui.js';
 import { finishEditing, turnOnEditMode } from './editor.js';
 import { handleImageRecognition, handleFileUpload, getMoveListAndComments, copyToClipboard, getVschessNodeTree, downloadFile, getFormattedDate, formatGameInfoString, saveGameState } from './io.js';
 import { renderBoardFull, drawBestMoveArrow, clearArrow } from './board.js';
@@ -440,7 +440,28 @@ export function initEvents() {
         showToast("Tính năng đang được phát triển!"); 
      };
 
+     // ====== Thư Viện ======
+    const menuLibrary = document.getElementById('menu-library');
+    if (menuLibrary) {
+        menuLibrary.onclick = () => {
+            closeModal('main-menu-modal');
+            openModal('library-modal');
+            renderLibraryList();
+        };
+    }
+    const btnLibClose = document.getElementById('btn-lib-close');
+    if (btnLibClose) btnLibClose.onclick = () => {
+        closeModal('library-modal');
+        openModal('main-menu-modal');
+    };
+    const btnDelLibCancel = document.getElementById('btn-del-lib-cancel');
+    if (btnDelLibCancel) btnDelLibCancel.onclick = () => closeModal('delete-lib-modal');
+
+    const btnDelLibConfirm = document.getElementById('btn-del-lib-confirm');
+    if (btnDelLibConfirm) btnDelLibConfirm.onclick = () => confirmDeleteLibraryItem();
+    //==============================
     
+    // ====== Setting ======
     const menuSettings = document.getElementById('menu-settings');
     if(menuSettings) menuSettings.onclick = () => { 
         closeModal('main-menu-modal'); 
@@ -985,20 +1006,39 @@ export function initEvents() {
 
     const btnSaveConfirm = document.getElementById('btn-save-confirm');
     if(btnSaveConfirm) {
-        btnSaveConfirm.onclick = () => {
+        btnSaveConfirm.onclick = async () => {
             closeModal('save-file-modal'); 
-            let filename = document.getElementById('save-file-name').value.trim() || "TuongKyViet";
-            filename += "_" + getFormattedDate();
+
+            const rawFileName = document.getElementById('save-file-name').value.trim() || "TuongKyViet";
+            const downloadFileName = rawFileName + "_" + getFormattedDate();
             
             try {
                 let { moves, comments } = getMoveListAndComments();
                 let vNode = getVschessNodeTree(state.rootNode);
-
-                if (state.pendingDownloadType === 'pgn-wxf') {
+                
+                if (state.pendingDownloadType === 'library') {
+                    showLoading("Đang lưu vào thư viện...");
+                    
+                    // 1. Chuyển đổi Ván cờ thành định dạng chuỗi Text (DhtmlXQ UBB)
+                    const gameDataText = vschess.nodeToData_DhtmlXQ(vNode, state.currentGameInfo, false);
+                    
+                    const idKey = 'lib_' + Date.now(); // 2. Tạo Key ID độc nhất
+                    
+                    await saveWorkspace(idKey, gameDataText); // 3. Lưu nội dung ván cờ vào IndexedDB với Key ID vừa tạo
+                    
+                    // 4. Lấy danh sách thư viện hiện tại, thêm File mới vào, và lưu lại danh sách
+                    let libraryList = await getWorkspace('library_workspace') || [];
+                    libraryList.push({ id_key: idKey, file_name: rawFileName });
+                    await saveWorkspace('library_workspace', libraryList);
+                    
+                    hideLoading();
+                    showToast(`✅ Đã lưu "${rawFileName}" vào Thư viện thành công!`);
+                }
+                else if (state.pendingDownloadType === 'pgn-wxf') {
                     let wxfMoves = vschess.nodeList2moveList(moves, state.rootNode.fen, "wxf", vschess.defaultOptions, false);
                     wxfMoves.shift(); 
                     const pgnData = vschess.moveListToData_PGN(wxfMoves, state.rootNode.fen, comments, state.currentGameInfo, state.currentGameInfo.result);
-                    downloadFile(filename + ".pgn", pgnData);
+                    downloadFile(downloadFileName + ".pgn", pgnData);
                 } else if (state.pendingDownloadType === 'pgn-iccs') {
                     let iccsDashMoves = moves.map(m => m.substring(0,2) + "-" + m.substring(2,4));
                     const pgnData = vschess.moveListToData_PGN(iccsDashMoves, state.rootNode.fen, comments, state.currentGameInfo, state.currentGameInfo.result);
@@ -1013,9 +1053,12 @@ export function initEvents() {
                     const cheData = vschess.moveListToData_QQ(moves, false);
                     downloadFile(filename + ".che", cheData);
                 }
-            } catch(e) { showToast("❌ Có lỗi xảy ra khi xuất file!"); }
+            } catch(e) { hideLoading(); showToast("❌ Có lỗi xảy ra khi xuất file!"); }
         };
     }
+
+    const expLibrary = document.getElementById('exp-library');
+    if(expLibrary) expLibrary.onclick = () => openSaveModal('library');
 
     const expPgnWxf = document.getElementById('exp-pgn-wxf');
     if(expPgnWxf) expPgnWxf.onclick = () => openSaveModal('pgn-wxf');

@@ -1,6 +1,7 @@
 // js/ui.js
 import { state } from './state.js';
 import { forceStopAIPlayers, jumpToNode, ensureNodeData,loadGameFromList } from './game.js';
+import { getWorkspace, saveWorkspace, deleteWorkspace } from './db.js';
 
 let toastTimeout;
 
@@ -273,12 +274,219 @@ function updateVirtualList() {
     }
 }
 export function showAILoading() {
-    if (state.appMode === 'analyze') return;
+    if (state.appMode === 'analyze' || state.appMode === 'blind') return;
     
     const spinner = document.getElementById('ai-thinking-spinner');
     if (spinner) spinner.style.display = 'block';
 }
 export function hideAILoading() {
+    if (state.appMode === 'analyze' || state.appMode === 'blind') return;
+    
     const spinner = document.getElementById('ai-thinking-spinner');
     if (spinner) spinner.style.display = 'none';
+}
+
+// ==========================================
+// CÔNG NGHỆ VIRTUAL LIST DÀNH CHO THƯ VIỆN
+// ==========================================
+let currentLibraryData = [];
+let libDomPool = [];
+const LIB_ITEM_HEIGHT = 48; // Chiều cao = đúng CSS .lib-item
+const LIB_VISIBLE_ITEMS = 25; // Số nút tạo ra tái chế
+export let pendingDeleteLibId = "";
+
+export async function renderLibraryList() {
+    showLoading("Đang tải thư viện...");
+    const rawList = await getWorkspace('library_workspace') || [];
+    // 1. ĐẢO NGƯỢC DANH SÁCH (Mới nhất lên đầu)
+    currentLibraryData = rawList.slice().reverse(); 
+
+    const viewport = document.getElementById('lib-list-viewport');
+    const spacer = document.getElementById('lib-list-spacer');
+    const container = document.getElementById('lib-list-container');
+    const emptyText = document.getElementById('lib-empty-text');
+
+    if (currentLibraryData.length === 0) {
+        emptyText.style.display = 'block';
+        spacer.style.height = '0px';
+        container.innerHTML = '';
+        libDomPool = []; // Reset pool
+        hideLoading();
+        return;
+    } else {
+        emptyText.style.display = 'none';
+    }
+
+    // 2. KHỞI TẠO DOM POOL LẦN ĐẦU (Nếu chưa có)
+    if (libDomPool.length === 0) {
+        container.innerHTML = '';
+        for (let i = 0; i < LIB_VISIBLE_ITEMS; i++) {
+            const item = document.createElement('div');
+            item.className = 'lib-item';
+            item.innerHTML = `
+                <span class="lib-title"></span>
+                <button class="lib-btn-del" title="Xóa ván này">
+                    <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+                </button>
+            `;
+            
+            // Xử lý Click để Load ván cờ
+            item.onclick = (e) => {
+                if(e.target.closest('.lib-btn-del')) return; // Bỏ qua nếu bấm trúng nút xóa
+                loadGameFromLibrary(item.dataset.idkey);
+            };
+
+            // Xử lý Click nút Xóa
+            item.querySelector('.lib-btn-del').onclick = (e) => {
+                e.stopPropagation(); // Cấm nổi bọt xuống item.onclick
+                pendingDeleteLibId = item.dataset.idkey;
+                document.getElementById('delete-lib-name').innerText = item.dataset.filename;
+                openModal('delete-lib-modal');
+            };
+
+            libDomPool.push(item);
+            container.appendChild(item);
+        }
+        
+        viewport.addEventListener('scroll', () => {
+            requestAnimationFrame(updateLibraryVirtualList);
+        });
+    }
+
+    // 3. SET CHIỀU CAO ẢO & RENDER TRANG 1
+    spacer.style.height = `${currentLibraryData.length * LIB_ITEM_HEIGHT}px`;
+    viewport.scrollTop = 0;
+    updateLibraryVirtualList();
+    
+    hideLoading();
+}
+
+function updateLibraryVirtualList() {
+    const viewport = document.getElementById('lib-list-viewport');
+    if (!viewport || libDomPool.length === 0) return;
+
+    const scrollTop = viewport.scrollTop;
+    const startIndex = Math.max(0, Math.floor(scrollTop / LIB_ITEM_HEIGHT) - 2);
+    const endIndex = Math.min(currentLibraryData.length - 1, startIndex + LIB_VISIBLE_ITEMS - 1);
+
+    const container = document.getElementById('lib-list-container');
+    container.style.transform = `translateY(${startIndex * LIB_ITEM_HEIGHT}px)`;
+
+    for (let i = 0; i < LIB_VISIBLE_ITEMS; i++) {
+        const dom = libDomPool[i];
+        const dataIndex = startIndex + i;
+
+        if (dataIndex <= endIndex) {
+            const data = currentLibraryData[dataIndex];
+            dom.style.display = 'flex';
+            dom.dataset.idkey = data.id_key;
+            dom.dataset.filename = data.file_name;
+            
+            const titleEl = dom.querySelector('.lib-title');
+            titleEl.innerText = data.file_name;
+            titleEl.title = data.file_name; // Hiện tooltip nếu dài
+        } else {
+            dom.style.display = 'none';
+        }
+    }
+}
+
+// Logic Nạp ván cờ từ Thư viện
+// Logic Nạp ván cờ từ Thư viện
+async function loadGameFromLibrary(idKey) {
+    showLoading("Đang mở ván cờ...");
+    try {
+        const textData = await getWorkspace(idKey);
+        if (textData) {
+            const nodeData = vschess.dataToNode(textData);
+            const infoData = vschess.dataToInfo(textData);
+            if (nodeData && nodeData.fen) {
+                
+                // =======================================================
+                // CƯỠNG CHẾ TRỞ VỀ CHẾ ĐỘ PHÂN TÍCH (ANALYZE MODE)
+                // =======================================================
+                state.appMode = 'analyze';
+                state.appSettings.appMode = 'analyze';
+                
+                // 1. Dọn dẹp CSS của chế độ Bot / Cờ mù
+                document.body.classList.remove('mode-vsbot', 'mode-blind');
+                const navBar = document.getElementById('nav-bar');
+                if (navBar) { navBar.style.opacity = '1'; navBar.style.pointerEvents = 'auto'; }
+                state.isPeeking = false;
+
+                // 2. Reset Tiêu đề Tab
+                const titleHeader = document.getElementById('tab-title');
+                if (titleHeader) {
+                    titleHeader.innerHTML = `
+                        <strong style="font-size: 17px; color: #333; display: block; width: 100%;">CHẾ ĐỘ PHÂN TÍCH</strong>
+                        <div id="blind-turn-indicator" class="blind-only" style="display: none; margin-top: 15px; font-size: 16px; font-weight: bold; color: #555;">
+                            Lượt đi: <span id="blind-turn-text">Bên Đỏ</span>
+                        </div>
+                    `;
+                }
+                const titleTabBtn = document.querySelector('.ai-tab-btn[data-tab="title"]');
+                if (titleTabBtn) titleTabBtn.click();
+
+                // 3. Reset Active Menu
+                document.querySelectorAll('.menu-item').forEach(btn => btn.classList.remove('menu-item-active'));
+                const activeMenuBtn = document.getElementById('menu-analyze');
+                if (activeMenuBtn) activeMenuBtn.classList.add('menu-item-active');
+
+                // 4. Tắt các nút Máy đánh (nếu có)
+                const btnRed = document.getElementById('btn-ai-red');
+                if(btnRed) btnRed.classList.remove('tool-active');
+                const btnBlack = document.getElementById('btn-ai-black');
+                if(btnBlack) btnBlack.classList.remove('tool-active');
+                state.aiPlaysRed = false;
+                state.aiPlaysBlack = false;
+                // =======================================================
+
+                state.gameList = [{ info: infoData, node: nodeData }];
+                
+                // 5. Import động các Module để thực thi lệnh
+                const [gameModule, ioModule, stateModule] = await Promise.all([
+                    import('./game.js'),
+                    import('./io.js'),
+                    import('./state.js')
+                ]);
+                
+                stateModule.storage.saveSystem(state.appSettings); // Lưu Setting
+                gameModule.forceStopAIPlayers(); // Hủy các luồng AI đang chạy
+                gameModule.loadGameFromList(0); // Nạp ván cờ lên giao diện
+                
+                // Vì mode hiện tại đã là 'analyze', hàm này sẽ tự động đè ván cờ vào "analyze_workspace"
+                ioModule.saveGameState(); 
+                
+                closeModal('library-modal');
+                showToast("✅ Đã mở ván cờ trong Chế Độ Phân Tích!");
+            } else {
+                showToast("❌ File lỗi hoặc không hợp lệ!");
+            }
+        } else {
+            showToast("❌ Không tìm thấy ván cờ (Đã bị xóa?)");
+        }
+    } catch(e) { showToast("❌ Lỗi khi đọc dữ liệu!"); }
+    hideLoading();
+}
+
+// Logic Xác nhận Xóa ván cờ
+export async function confirmDeleteLibraryItem() {
+    closeModal('delete-lib-modal');
+    showLoading("Đang xóa...");
+    try {
+        // 1. Xóa nội dung ván cờ thật sự khỏi IndexedDB
+        await deleteWorkspace(pendingDeleteLibId);
+        
+        // 2. Tìm và xóa dòng đó khỏi mảng 'library_workspace'
+        let list = await getWorkspace('library_workspace') || [];
+        list = list.filter(item => item.id_key !== pendingDeleteLibId);
+        await saveWorkspace('library_workspace', list);
+        
+        // 3. Render lại danh sách Virtual (Nó sẽ tự reload list mới)
+        await renderLibraryList();
+        showToast("✅ Đã xóa ván cờ thành công!");
+    } catch(e) {
+        showToast("❌ Lỗi trong quá trình xóa!");
+    }
+    hideLoading();
 }
