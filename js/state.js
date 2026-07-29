@@ -84,5 +84,10 @@ export const state = {
     preEditStepNum: 0,
 
     pendingDownloadType: "",
-    editingParentNode: null 
+    editingParentNode: null,
+
+    pendingMemorizeData: null, // Chứa ván cờ tạm thời khi chọn/tải file
+    memorizeSettings: { side: 'red', path: 'manual', isBlind: false }, // Lưu cấu hình
+    memoMistakesRed: 0,
+    memoMistakesBlack: 0
 };

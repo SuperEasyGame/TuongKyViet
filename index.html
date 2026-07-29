@@ -182,6 +182,11 @@
                             <div id="blind-turn-indicator" class="blind-only" style="display: none; margin-top: 15px; font-size: 16px; font-weight: bold; color: #555;">
                                 Lượt đi: <span id="blind-turn-text">Bên Đỏ</span>
                             </div>
+                            <!-- VÙNG CHỨA CÁC NÚT NHÁNH BIẾN CHO LUYỆN NHỚ -->
+                            <div id="memo-variation-container" style="display: none; margin-top: 20px; width: 100%; flex-direction: column; gap: 8px;">
+                                <div style="font-size: 13px; color: #d32f2f; margin-bottom: 5px;">Mời bạn chọn biến:</div>
+                                <!-- Các nút sẽ được JS chèn vào đây -->
+                            </div>
                         </div>
                         <div class="ai-content" id="tab-comment" style="display:none; padding: 0;">
                             <textarea id="comment-box" maxlength="1000" placeholder="Nhập ghi chú cho nước cờ này... (Tối đa 1000 ký tự)"></textarea>
@@ -673,7 +678,13 @@
                 Thư Viện Của Tôi
             </div>
             <div class="modal-body" style="flex: 1; padding: 0; display: flex; flex-direction: column; overflow: hidden; position: relative; background: #fdfdfd;">
-                <div id="lib-empty-text" style="display: none; text-align: center; color: #888; margin-top: 20px;">Thư viện trống</div>
+                <div id="lib-empty-text" style="display: none; text-align: center; color: #555; margin-top: 30px; font-size: 14px; padding: 0 15px; line-height: 1.8;">
+                    <strong>Thư viện trống</strong><br><br>
+                    Để thêm ván đấu vào thư viện:<br>
+                    1. Vào chế độ <strong style="color:#008a3e;">🔍 Phân Tích</strong><br>
+                    2. Bấm nút <strong>Xuất ván đấu</strong> ( <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#333" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width: 14px; height: 14px; vertical-align: middle;"><path d="M21 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h6"></path><path d="m21 3-9 9"></path><path d="M15 3h6v6"></path></svg> )<br>
+                    3. Chọn <strong style="color:#e39817;">📚 Lưu vào Thư Viện</strong>
+                </div>
                 <!-- Khung cuộn ảo (Virtual List) -->
                 <div id="lib-list-viewport" style="flex: 1; width: 100%; overflow-y: auto; position: relative;">
                     <div id="lib-list-spacer" style="width: 100%; position: absolute; top: 0; left: 0; z-index: -1;"></div>
@@ -698,6 +709,114 @@
             <div style="display: flex; border-top: 1px solid #eee;">
                 <button class="modal-btn-half" id="btn-del-lib-cancel" style="color: #666; border-right: 1px solid #eee;">Hủy</button>
                 <button class="modal-btn-half" id="btn-del-lib-confirm" style="color: #d32f2f; font-weight: bold;">Xác Nhận</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL CHỌN VÁN ĐẤU: LUYỆN NHỚ VÁN -->
+    <div id="memorize-modal" class="modal-overlay">
+        <div class="modal-content" style="width: 350px; height: 75vh;">
+            <div class="modal-header" style="justify-content: center; font-size: 18px; color: #333;">
+                Luyện Nhớ Ván
+            </div>
+            <div class="modal-body" style="flex: 1; padding: 0; display: flex; flex-direction: column; overflow: hidden; position: relative; background: #fdfdfd;">
+                
+                <!-- Nút Tải File Tĩnh ở trên cùng (Loại bỏ .cbl) -->
+                <div style="padding: 10px; border-bottom: 2px solid #eee; background: #fff;">
+                    <button class="import-btn btn-blue" onclick="document.getElementById('memorize-file-upload').click()" style="width: 100%;">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+                        Tải Tệp Ván Đấu (File)
+                    </button>
+                    <!-- Input ẩn loại bỏ định dạng cbl -->
+                    <input type="file" id="memorize-file-upload" accept=".pgn,.xqf,.cbr,.ccm,.pfc,.che" style="display:none">
+                </div>
+
+                <div id="memo-empty-text" style="display: none; text-align: center; color: #555; margin-top: 30px; font-size: 14px; padding: 0 15px; line-height: 1.8;">
+                    <strong>Danh sách trống</strong><br><br>
+                    Để lưu một ván cờ vào danh sách:<br>
+                    1. Vào chế độ <strong style="color:#008a3e;">🔍 Phân Tích</strong><br>
+                    2. Bấm nút <strong>Xuất ván đấu</strong> ( <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#333" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width: 14px; height: 14px; vertical-align: middle;"><path d="M21 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h6"></path><path d="m21 3-9 9"></path><path d="M15 3h6v6"></path></svg> )<br>
+                    3. Chọn <strong style="color:#e39817;">📚 Lưu vào Thư Viện</strong>
+                </div>
+                
+                <!-- Khung cuộn ảo (Virtual List) -->
+                <div id="memo-list-viewport" style="flex: 1; width: 100%; overflow-y: auto; position: relative;">
+                    <div id="memo-list-spacer" style="width: 100%; position: absolute; top: 0; left: 0; z-index: -1;"></div>
+                    <div id="memo-list-container" style="width: 100%; position: absolute; top: 0; left: 0;"></div>
+                </div>
+            </div>
+            <div style="display: flex; border-top: 1px solid #eee;">
+                <button class="modal-btn-half" id="btn-memo-close" style="color: #d32f2f; font-weight: bold; width: 100%;">Đóng</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL THIẾT LẬP LUYỆN NHỚ VÁN -->
+    <div id="memorize-setup-modal" class="modal-overlay" style="z-index: 1001;">
+        <div class="modal-content" style="width: 320px;">
+            <div class="modal-header" style="justify-content: center; font-size: 18px; color: #333;">
+                Thiết Lập Ván Đấu
+            </div>
+            
+            <div class="modal-body settings-body" style="padding: 0;">
+                <div class="settings-row">
+                    <div class="settings-label">
+                        <strong>Bên luyện</strong>
+                        <span>Chọn phe bạn muốn cầm</span>
+                    </div>
+                    <select id="memo-setup-side" style="padding: 5px; border-radius: 4px; border: 1px solid #ccc; outline: none; font-size: 14px; font-weight: bold; color: #333;">
+                        <option value="red">Luyện bên đỏ</option>
+                        <option value="black">Luyện bên đen</option>
+                        <option value="both">Luyện cả 2 bên</option>
+                    </select>
+                </div>
+
+                <div class="settings-row">
+                    <div class="settings-label">
+                        <strong>Nhánh biến</strong>
+                        <span>Cách chọn nhánh biến hóa</span>
+                    </div>
+                    <select id="memo-setup-path" style="padding: 5px; border-radius: 4px; border: 1px solid #ccc; outline: none; font-size: 14px; font-weight: bold; color: #333;">
+                        <option value="manual">Tự chọn </option>
+                        <option value="random">Ngẫu nhiên</option>
+                    </select>
+                </div>
+
+                <div class="settings-row">
+                    <div class="settings-label">
+                        <strong>Cờ mù</strong>
+                        <span>Ẩn hiển thị quân cờ</span>
+                    </div>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="memo-setup-blind">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+            </div>
+
+            <div style="display: flex; border-top: 1px solid #eee;">
+                <button class="modal-btn-half" id="btn-memo-setup-cancel" style="color: #666; border-right: 1px solid #eee;">Hủy</button>
+                <button class="modal-btn-half" id="btn-memo-setup-confirm" style="color: #008a3e; font-weight: bold;">Xác nhận</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL KẾT THÚC LUYỆN NHỚ VÁN -->
+    <div id="memo-gameover-modal" class="modal-overlay" style="z-index: 1002;">
+        <div class="modal-content" style="width: 300px;">
+            <div class="modal-header" style="justify-content: center; font-size: 18px; color: #333;">
+                Kết Thúc Ván
+            </div>
+            <div class="modal-body" style="text-align: center; padding: 20px 15px; color: #555; font-size: 15px;">
+                <div style="margin-bottom: 15px; font-size: 14px; font-weight: bold; display: flex; justify-content: center; gap: 15px;">
+                    <span style="color: #d32f2f;">Số nước đỏ đi sai: <span id="memo-end-err-red">0</span></span> 
+                    <span style="color: #000;">Số nước đen đi sai: <span id="memo-end-err-black">0</span></span>
+                </div>
+                Bạn có muốn luyện ván mới hoặc luyện lại không?
+            </div>
+            <div style="display: flex; border-top: 1px solid #eee;">
+                <button class="modal-btn-half" id="btn-memo-retry" style="color: #1a73e8; border-right: 1px solid #eee; font-weight: bold;">Luyện lại</button>
+                <button class="modal-btn-half" id="btn-memo-new" style="color: #008a3e; font-weight: bold;">Luyện ván mới</button>
             </div>
         </div>
     </div>

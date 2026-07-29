@@ -260,7 +260,8 @@ function drawSelectedPiece() {
 }
 
 function drawLegalMoveDots() {
-    if (state.appMode === 'blind' && !state.isPeeking) return;
+    const isBlindMode = state.appMode === 'blind' || (state.appMode === 'memorize' && state.memorizeSettings.isBlind);
+    if (isBlindMode && !state.isPeeking) return;
     if (!state.legalMoves || state.legalMoves.length === 0) return;
     
     const imgDot = imageCache['dot'];
@@ -283,7 +284,8 @@ function drawLegalMoveDots() {
 
 // Trả về ảnh của quân cờ tùy theo chế độ (Thường hoặc Mù)
 function getPieceImage(pieceCode) {
-    if (state.appMode === 'blind' && !state.isPeeking) {
+    const isBlindMode = state.appMode === 'blind' || (state.appMode === 'memorize' && state.memorizeSettings.isBlind);
+    if (isBlindMode && !state.isPeeking) {
         const char = vschess.n2f[pieceCode];
         // Ký tự viết hoa (R, N, B, A, K, C, P) là quân Đỏ
         const isRed = char === char.toUpperCase() && char !== '*'; 
@@ -383,7 +385,7 @@ function drawAnimatingPiece() {
 }
 
 function drawBestMoveArrowCanvas() {
-    if (state.pvLines.length === 0 || state.isAnimating || state.isEditMode || state.appMode === 'vsbot' || state.appMode === 'blind') return;
+    if (state.pvLines.length === 0 || state.isAnimating || state.isEditMode || state.appMode === 'vsbot' || state.appMode === 'blind' || state.appMode === 'memorize') return;
 
     // Kiểm tra xem Động cơ AI có đang được bật hay không (Phân tích, Máy cầm Đỏ, Máy cầm Đen)
     const isAILive = state.isAnalyzing || state.aiPlaysRed || state.aiPlaysBlack;

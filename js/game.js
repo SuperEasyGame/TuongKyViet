@@ -68,7 +68,7 @@ function updateBotTitleBoard() {
 }
 
 export function updateBlindTurnUI() {
-    if (state.appMode !== 'blind') return;
+    if (state.appMode !== 'blind' && state.appMode !== 'memorize') return;
     
     const turnTextEl = document.getElementById('blind-turn-text');
     if (!turnTextEl) return;
@@ -82,6 +82,13 @@ export function updateBlindTurnUI() {
     } else {
         turnTextEl.innerText = "Bên Đen";
         turnTextEl.style.color = "#000000"; // Màu đen đặc
+    }
+
+    if (state.appMode === 'memorize') {
+        const errRed = document.getElementById('memo-err-red');
+        const errBlack = document.getElementById('memo-err-black');
+        if (errRed) errRed.innerText = state.memoMistakesRed;
+        if (errBlack) errBlack.innerText = state.memoMistakesBlack;
     }
 }
 
@@ -151,34 +158,47 @@ export function loadGameFromList(index, targetPtrId = null) {
     if(!state.isEditMode) renderMoveHistory();
     renderGameList(false);
     updateBlindTurnUI();
+    //if (state.appMode === 'memorize') triggerMemorizeBot();
 }
 
 export function updateVsBotToolButtons() {
-    if (state.appMode !== 'vsbot') return;
+    if (state.appMode !== 'vsbot' && state.appMode !== 'memorize') return;
     
     const isRedTurn = state.currentNode.fen.split(" ")[1] === "w";
-    const isBotTurn = (state.vsBotSettings.botColor === 'red' && isRedTurn) || (state.vsBotSettings.botColor === 'black' && !isRedTurn);
+    let isBotTurn = false;
+
+    if (state.appMode === 'vsbot') {
+        isBotTurn = (state.vsBotSettings.botColor === 'red' && isRedTurn) || (state.vsBotSettings.botColor === 'black' && !isRedTurn);
+    } else if (state.appMode === 'memorize') {
+        isBotTurn = (state.aiPlaysRed && isRedTurn) || (state.aiPlaysBlack && !isRedTurn);
+    }
     
     const btnUndo = document.getElementById('btn-undo');
     const btnHint = document.getElementById('btn-hint');
     const btnEdit = document.getElementById('btn-edit');
-    const btnImport = document.getElementById('btn-import'); // Lấy nút Import
+    const btnImport = document.getElementById('btn-import'); 
     
-    // Nếu đến lượt Bot hoặc đang có hiệu ứng chuyển động/tự phát
     if (isBotTurn || state.isAnimating || state.isAutoPlaying) {
         if(btnUndo) btnUndo.classList.add('disabled');
         if(btnHint) btnHint.classList.add('disabled');
         if(btnEdit) btnEdit.classList.add('disabled'); 
-        if(btnImport) btnImport.classList.add('disabled'); // Khóa nút Nhập ván đấu
+        if(btnImport) btnImport.classList.add('disabled');
     } else {
         if(btnHint) btnHint.classList.remove('disabled');
         if(btnEdit) btnEdit.classList.remove('disabled'); 
-        if(btnImport) btnImport.classList.remove('disabled'); // Mở khóa nút Nhập ván đấu
+        if(btnImport) btnImport.classList.remove('disabled');
         
         let stepCount = 0; let temp = state.currentNode;
         while(temp.parent) { stepCount++; temp = temp.parent; }
+
+        // TRONG CHẾ ĐỘ LUYỆN NHỚ, nếu luyện 2 bên (không có bot) -> Lùi 1 bước. Nếu luyện 1 bên -> Lùi 2 bước.
+        let minSteps = 2;
+        if (state.appMode === 'memorize' && !state.aiPlaysRed && !state.aiPlaysBlack) {
+            minSteps = 1; 
+        }
         
-        if (stepCount >= 2 && btnUndo) {
+        // Nếu số nước đi LỚN HƠN HOẶC BẰNG số nước tối thiểu cần để lùi -> Mở khóa nút!
+        if (stepCount >= minSteps && btnUndo) {
             btnUndo.classList.remove('disabled');
         } else if (btnUndo) {
             btnUndo.classList.add('disabled');
@@ -188,11 +208,12 @@ export function updateVsBotToolButtons() {
     updateBotTitleBoard();
 }
 
-function applyAutoBoardFlip() {
+export function applyAutoBoardFlip() {
     const boardArea = document.getElementById('chess-board-area');
     const btnFlip = document.getElementById('btn-flip');
     
     if (state.appMode === 'vsbot') state.isBoardFlipped = (state.vsBotSettings.botColor === 'red');
+    else if (state.appMode === 'memorize') state.isBoardFlipped = (state.memorizeSettings.side === 'black');
     else state.isBoardFlipped = false;
 
     if (boardArea) {
@@ -248,7 +269,7 @@ export async function initGame(fenString = START_FEN, loadFromStorage = false) {
     }
     
     // XỬ LÝ CLASS BODY CHO CHẾ ĐỘ MỚI
-    document.body.classList.remove('mode-vsbot', 'mode-blind');
+    document.body.classList.remove('mode-vsbot', 'mode-blind', 'mode-memorize');
     const navBar = document.getElementById('nav-bar');
 
     if (state.appMode === 'vsbot') {
@@ -331,6 +352,7 @@ export async function initGame(fenString = START_FEN, loadFromStorage = false) {
         if (!state.engineModule) initPikafish(); else triggerEngineEvaluation();
     }
     updateBlindTurnUI(); 
+    if (state.appMode === 'memorize') triggerMemorizeBot();
 }
 
 export function handleSquareClick(x, y, iccsPos) {
@@ -338,10 +360,20 @@ export function handleSquareClick(x, y, iccsPos) {
     if (state.isAnimating) return; 
     
     const isRedTurn = state.currentNode.fen.split(" ")[1] === "w";
+
     if (state.appMode === 'vsbot') {
         const isBotTurn = (state.vsBotSettings.botColor === 'red' && isRedTurn) || (state.vsBotSettings.botColor === 'black' && !isRedTurn);
         if (isBotTurn) return; 
-    } else {
+    } 
+    else if (state.appMode === 'memorize') {
+        // TRONG CHẾ ĐỘ LUYỆN NHỚ
+        // Nếu chọn "Luyện cả 2 bên", state.aiPlaysRed = false và state.aiPlaysBlack = false -> Lệnh này tự động cho phép người chơi đi cả 2 phe!
+        const isBotTurn = (state.aiPlaysRed && isRedTurn) || (state.aiPlaysBlack && !isRedTurn);
+        if (isBotTurn) {
+            return; 
+        }
+    } 
+    else {
         if ((isRedTurn && state.aiPlaysRed) || (!isRedTurn && state.aiPlaysBlack)) return;
     }
     
@@ -349,7 +381,27 @@ export function handleSquareClick(x, y, iccsPos) {
 
     if (state.selectedSquare) {
         const moveCommand = state.selectedSquare.iccs + iccsPos; 
-        if (state.legalMoves.includes(moveCommand)) { executeMove(moveCommand); return; }
+        if (state.legalMoves.includes(moveCommand)) { 
+            
+            // TRONG CHẾ ĐỘ LUYỆN NHỚ: CHỈ CHO PHÉP ĐI NƯỚC CÓ TRONG BÀI
+            if (state.appMode === 'memorize') {
+                const isValidMemory = state.currentNode.children.some(c => c.moveCommand === moveCommand);
+                if (!isValidMemory) {
+                    if (isRedTurn) state.memoMistakesRed++;
+                    else state.memoMistakesBlack++;
+                    updateBlindTurnUI();
+
+                    showToast("❌ Nước đi sai! Hãy chọn nước đi có trong bài học.");
+                    state.selectedSquare = null;
+                    state.legalMoves = [];
+                    import('./board.js').then(m => m.renderBoardFull(state.currentSituation));
+                    return;
+                }
+            }
+            
+            executeMove(moveCommand); 
+            return; 
+        }
     }
     
     const pieceCode = state.currentSituation[vschess.i2s[iccsPos]];
@@ -435,6 +487,19 @@ export function forceStopAIPlayers() {
 }
 
 export function checkGameOver() {
+    if (state.appMode === 'memorize') {
+        const children = state.currentNode.children;
+        if (children.length === 0) {
+            // ĐÃ HẾT NƯỚC ĐI CỦA CÂY -> GỌI MODAL TỔNG KẾT
+            import('./ui.js').then(ui => {
+                document.getElementById('memo-end-err-red').innerText = state.memoMistakesRed;
+                document.getElementById('memo-end-err-black').innerText = state.memoMistakesBlack;
+                ui.openModal('memo-gameover-modal');
+            });
+        }
+        return; // Đảm bảo thoát ra, không chạy code kiểm tra Thắng/Hòa bên dưới!
+    }
+    
     const isDraw = checkDraw60Moves(state.currentNode);
     const strictMoves = getStrictLegalMoves(state.currentSituation, state.currentNode.fen);
     
@@ -471,8 +536,108 @@ export function checkGameOver() {
     }
 }
 
+export function triggerMemorizeBot() {
+    if (state.appMode !== 'memorize' || state.isAnimating) return;
+    
+    const isRedTurn = state.currentNode.fen.split(" ")[1] === "w";
+    const isBotTurn = (isRedTurn && state.aiPlaysRed) || (!isRedTurn && state.aiPlaysBlack);
+    
+    const children = state.currentNode.children;
+    const varContainer = document.getElementById('memo-variation-container');
+    if (varContainer) varContainer.style.display = 'none'; // Ẩn UI chọn biến cũ
+
+    if (children.length === 0) {
+        return; 
+    }
+
+    // YÊU CẦU 2: CÓ NHÁNH BIẾN + CHỌN MANUAL -> DỪNG LẠI & TRẢ QUYỀN CHO PLAYER BẤT KỂ LƯỢT AI
+    if (children.length > 1 && state.memorizeSettings.path === 'manual') {
+        showToast("💡 Đến nhánh biến hóa! Mời bạn tự tay chọn nước đi.");
+        
+        // Cướp quyền của Bot (Trở thành chế độ "Luyện 2 bên" tạm thời)
+        state.aiPlaysRed = false;
+        state.aiPlaysBlack = false;
+        
+        // Đảm bảo tất cả các nhánh con đều được dịch tên nước đi (Khắc phục lỗi chữ null)
+        children.forEach(child => ensureNodeData(child));
+
+        // Vẽ danh sách nút bấm ra màn hình
+        if (varContainer) {
+            varContainer.innerHTML = '<div style="font-size: 13px; color: #d32f2f; margin-bottom: 5px;">Mời bạn chọn biến để luyện tiếp:</div>';
+            children.forEach((child, index) => {
+                const btn = document.createElement('button');
+                btn.className = 'export-btn';
+                btn.style.cssText = 'justify-content: center; background: #e8f0fe; border-color: #bbdefb; color: #1a73e8; cursor: pointer;';
+                btn.innerText = `${index + 1}. ${child.notation}`;
+                btn.onclick = () => {
+                    varContainer.style.display = 'none';
+                    executeForwardStep(child); // Đi nước đã chọn
+                };
+                varContainer.appendChild(btn);
+            });
+            varContainer.style.display = 'flex';
+        }
+        
+        return; // DỪNG HOÀN TOÀN BOT TẠI ĐÂY!
+    }
+
+    // NẾU KHÔNG CÓ BIẾN / KHÔNG CHỌN MANUAL MÀ LÀ LƯỢT CỦA BOT -> BOT TỰ ĐI
+    if (isBotTurn) {
+        let selectedChild = null;
+        if (children.length === 1) {
+            selectedChild = children[0]; // Có 1 đường -> Bot tự đi
+        } else if (state.memorizeSettings.path === 'random') {
+            const randIdx = Math.floor(Math.random() * children.length);
+            selectedChild = children[randIdx]; // Bốc random
+            state.currentNode.mainLineIndex = randIdx;
+        }
+
+        if (selectedChild) {
+            import('./ui.js').then(ui => {
+                ui.showAILoading();
+                setTimeout(() => {
+                    ui.hideAILoading();
+                    state.pvLines = [];
+                    state.selectedSquare = null;
+                    state.legalMoves = [];
+                    
+                    const moveCommand = selectedChild.moveCommand;
+                    const fromIccs = moveCommand.substring(0, 2); 
+                    const toIccs = moveCommand.substring(2, 4);
+                    const movingPieceCode = state.currentSituation[vschess.i2s[fromIccs]];
+                    
+                    if (state.appSettings.animation) {
+                        state.isAnimating = true;
+                        import('./board.js').then(b => b.startCanvasAnimation(fromIccs, toIccs, movingPieceCode));
+                    }
+
+                    state.currentNode = selectedChild; 
+                    state.currentStepNum++;
+                    ensureNodeData(state.currentNode);
+                    state.lastMove = moveCommand;
+                    state.currentSituation = vschess.fenToSituation(state.currentNode.fen);
+                    
+                    import('./board.js').then(b => b.renderMoveHistory());
+                    updateBlindTurnUI();
+                    updateVsBotToolButtons();
+                    
+                    setTimeout(() => { 
+                        state.isAnimating = false; 
+                        updateVsBotToolButtons();
+                        checkGameOver(); 
+                        triggerMemorizeBot(); // Xem xét đi tiếp
+                    }, state.appSettings.animation ? 150 : 0);
+                    
+                }, 800); 
+            });
+        }
+    }
+}
+
 export function executeMove(moveCommand, isJump = false, isReverse = false) {
     state.pvLines = [];
+    const varContainer = document.getElementById('memo-variation-container');
+    if (varContainer) varContainer.style.display = 'none';
     const useAnim = state.appSettings.animation;
     if (useAnim) state.isAnimating = true;
     updateVsBotToolButtons(); 
@@ -534,15 +699,29 @@ export function executeMove(moveCommand, isJump = false, isReverse = false) {
 
     setTimeout(() => {
         state.isAnimating = false;
-        checkGameOver();
-        if (!isJump) triggerEngineEvaluation(); 
-        updateVsBotToolButtons(); 
-        updateBlindTurnUI();
-    }, useAnim ? 150 : 0); 
+        
+        // Đợi thêm 400ms để người chơi nhìn thấy nước cờ cuối cùng VÀ âm thanh được phát xong
+        // rồi MỚI cho phép hiện Modal Kết thúc ván
+        setTimeout(() => {
+            checkGameOver();
+            if (!isJump && state.appMode !== 'memorize') triggerEngineEvaluation(); 
+            updateVsBotToolButtons(); 
+            updateBlindTurnUI();
+            if (state.appMode === 'memorize') {
+                const side = state.memorizeSettings.side;
+                if (side === 'red') { state.aiPlaysRed = false; state.aiPlaysBlack = true; }
+                else if (side === 'black') { state.aiPlaysRed = true; state.aiPlaysBlack = false; }
+                triggerMemorizeBot();
+            }
+        }, 600);
+
+    }, useAnim ? 150 : 0);
 }
 
 export function executeForwardStep(targetNode) {
     state.pvLines = [];
+    const varContainer = document.getElementById('memo-variation-container');
+    if (varContainer) varContainer.style.display = 'none';
     const useAnim = state.appSettings.animation;
     if (useAnim) state.isAnimating = true;
     updateVsBotToolButtons();
@@ -575,10 +754,20 @@ export function executeForwardStep(targetNode) {
     
     setTimeout(() => { 
         state.isAnimating = false; 
-        checkGameOver(); 
-        triggerEngineEvaluation(); 
-        updateVsBotToolButtons();
-        updateBlindTurnUI();
+        
+        setTimeout(() => {
+            checkGameOver(); 
+            if (state.appMode !== 'memorize') triggerEngineEvaluation(); 
+            updateVsBotToolButtons();
+            updateBlindTurnUI();
+            if (state.appMode === 'memorize') {
+                const side = state.memorizeSettings.side;
+                if (side === 'red') { state.aiPlaysRed = false; state.aiPlaysBlack = true; }
+                else if (side === 'black') { state.aiPlaysRed = true; state.aiPlaysBlack = false; }
+                triggerMemorizeBot();
+            }
+        }, 600);
+
     }, useAnim ? 150 : 0);
 }
 
@@ -611,9 +800,19 @@ export function executeReverseStep(nodeToReverse) {
 
     setTimeout(() => { 
         state.isAnimating = false; 
-        triggerEngineEvaluation();
-        updateVsBotToolButtons();
-        updateBlindTurnUI();
+        
+        setTimeout(() => {
+            if (state.appMode !== 'memorize') triggerEngineEvaluation(); 
+            updateVsBotToolButtons();
+            updateBlindTurnUI();
+            if (state.appMode === 'memorize') {
+                const side = state.memorizeSettings.side;
+                if (side === 'red') { state.aiPlaysRed = false; state.aiPlaysBlack = true; }
+                else if (side === 'black') { state.aiPlaysRed = true; state.aiPlaysBlack = false; }
+                triggerMemorizeBot();
+            }
+        }, 600);
+
     }, useAnim ? 150 : 0);
 }
 
@@ -637,6 +836,13 @@ export function undoVsBot() {
     
     triggerEngineEvaluation();
     updateVsBotToolButtons();
+    if (state.appMode === 'memorize') {
+            // PHỤC HỒI QUYỀN BOT DỰA VÀO SETTING BAN ĐẦU
+            const side = state.memorizeSettings.side;
+            if (side === 'red') { state.aiPlaysRed = false; state.aiPlaysBlack = true; }
+            else if (side === 'black') { state.aiPlaysRed = true; state.aiPlaysBlack = false; }
+            triggerMemorizeBot();
+        }
 }
 
 export function instantJumpToNode(targetNode) {
@@ -653,7 +859,9 @@ export function instantJumpToNode(targetNode) {
     state.currentStepNum = step;
 
     renderMoveHistory(); saveGameState(); updateVsBotToolButtons();
-    triggerEngineEvaluation(); updateBlindTurnUI();
+    if (state.appMode !== 'memorize') triggerEngineEvaluation(); 
+    updateBlindTurnUI();
+    if (state.appMode === 'memorize') triggerMemorizeBot();
 }
 
 export function jumpToNode(targetNode) {

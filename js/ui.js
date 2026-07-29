@@ -408,8 +408,8 @@ async function loadGameFromLibrary(idKey) {
                 state.appMode = 'analyze';
                 state.appSettings.appMode = 'analyze';
                 
-                // 1. Dọn dẹp CSS của chế độ Bot / Cờ mù
-                document.body.classList.remove('mode-vsbot', 'mode-blind');
+                // 1. Dọn dẹp CSS của chế độ Bot / Cờ mù / Luyện Nhớ Ván
+                document.body.classList.remove('mode-vsbot', 'mode-blind', 'mode-memorize');
                 const navBar = document.getElementById('nav-bar');
                 if (navBar) { navBar.style.opacity = '1'; navBar.style.pointerEvents = 'auto'; }
                 state.isPeeking = false;
@@ -489,4 +489,101 @@ export async function confirmDeleteLibraryItem() {
         showToast("❌ Lỗi trong quá trình xóa!");
     }
     hideLoading();
+}
+
+// ==========================================
+// CÔNG NGHỆ VIRTUAL LIST DÀNH CHO LUYỆN NHỚ VÁN
+// ==========================================
+let memoDomPool = [];
+
+export async function renderMemorizeList() {
+    showLoading("Đang tải thư viện...");
+    const rawList = await getWorkspace('library_workspace') || [];
+    currentLibraryData = rawList.slice().reverse(); 
+
+    const viewport = document.getElementById('memo-list-viewport');
+    const spacer = document.getElementById('memo-list-spacer');
+    const container = document.getElementById('memo-list-container');
+    const emptyText = document.getElementById('memo-empty-text');
+
+    if (currentLibraryData.length === 0) {
+        emptyText.style.display = 'block';
+        spacer.style.height = '0px';
+        container.innerHTML = '';
+        memoDomPool = [];
+        hideLoading();
+        return;
+    } else {
+        emptyText.style.display = 'none';
+    }
+
+    if (memoDomPool.length === 0) {
+        container.innerHTML = '';
+        for (let i = 0; i < LIB_VISIBLE_ITEMS; i++) {
+            const item = document.createElement('div');
+            item.className = 'lib-item';
+            // Custom lại Item: Không có nút xóa
+            item.innerHTML = `<span class="lib-title" style="text-align: center; width: 100%; padding: 0;"></span>`;
+            
+            // Xử lý Click: Tải nháp Data -> Mở Setup
+            item.onclick = async () => {
+                showLoading("Đang nạp ván đấu...");
+                try {
+                    const textData = await getWorkspace(item.dataset.idkey);
+                    if (textData) {
+                        const nodeData = vschess.dataToNode(textData);
+                        const infoData = vschess.dataToInfo(textData);
+                        if (nodeData && nodeData.fen) {
+                            state.pendingMemorizeData = { node: nodeData, info: infoData };
+                            closeModal('memorize-modal');
+                            openModal('memorize-setup-modal');
+                        } else showToast("❌ File hỏng!");
+                    }
+                } catch(e) {}
+                hideLoading();
+            };
+
+            memoDomPool.push(item);
+            container.appendChild(item);
+        }
+        
+        viewport.addEventListener('scroll', () => {
+            requestAnimationFrame(updateMemoVirtualList);
+        });
+    }
+
+    spacer.style.height = `${currentLibraryData.length * LIB_ITEM_HEIGHT}px`;
+    viewport.scrollTop = 0;
+    updateMemoVirtualList();
+    
+    hideLoading();
+}
+
+function updateMemoVirtualList() {
+    const viewport = document.getElementById('memo-list-viewport');
+    if (!viewport || memoDomPool.length === 0) return;
+
+    const scrollTop = viewport.scrollTop;
+    const startIndex = Math.max(0, Math.floor(scrollTop / LIB_ITEM_HEIGHT) - 2);
+    const endIndex = Math.min(currentLibraryData.length - 1, startIndex + LIB_VISIBLE_ITEMS - 1);
+
+    const container = document.getElementById('memo-list-container');
+    container.style.transform = `translateY(${startIndex * LIB_ITEM_HEIGHT}px)`;
+
+    for (let i = 0; i < LIB_VISIBLE_ITEMS; i++) {
+        const dom = memoDomPool[i];
+        const dataIndex = startIndex + i;
+
+        if (dataIndex <= endIndex) {
+            const data = currentLibraryData[dataIndex];
+            dom.style.display = 'flex';
+            dom.dataset.idkey = data.id_key;
+            
+            const titleEl = dom.querySelector('.lib-title');
+            titleEl.innerText = data.file_name;
+            titleEl.title = data.file_name;
+        } else {
+            dom.style.display = 'none';
+        }
+    }
 }

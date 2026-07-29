@@ -3,7 +3,7 @@ import { state, storage } from './state.js';
 import { getWorkspace , saveWorkspace } from './db.js';
 import { toggleAutoPlay, forceStopAIPlayers, jumpToNode, initGame, loadGameFromList } from './game.js';
 import { triggerEngineEvaluation, applyEngineSettings, getDeviceTier } from './engine.js';
-import { openModal, closeModal, updateTurnToggleUI, showLoading, hideLoading, showToast, renderLibraryList, confirmDeleteLibraryItem } from './ui.js';
+import { openModal, closeModal, updateTurnToggleUI, showLoading, hideLoading, showToast, renderLibraryList, confirmDeleteLibraryItem, renderMemorizeList } from './ui.js';
 import { finishEditing, turnOnEditMode } from './editor.js';
 import { handleImageRecognition, handleFileUpload, getMoveListAndComments, copyToClipboard, getVschessNodeTree, downloadFile, getFormattedDate, formatGameInfoString, saveGameState } from './io.js';
 import { renderBoardFull, drawBestMoveArrow, clearArrow } from './board.js';
@@ -174,7 +174,7 @@ export function initEvents() {
         const activeEl = document.activeElement;
         if (activeEl.tagName === 'TEXTAREA' || activeEl.tagName === 'INPUT') return;
 
-        if (state.appMode === 'vsbot') {
+        if (state.appMode === 'vsbot' || state.appMode === 'memorize') {
             if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) {
                 e.preventDefault();
                 showToast("Bạn không thể tiến/lùi cờ trong chế độ Đấu Máy!");
@@ -219,8 +219,23 @@ export function initEvents() {
     if (btnUndo) {
         btnUndo.onclick = () => {
             if (btnUndo.classList.contains('disabled')) return;
+            
             import('./game.js').then(module => {
-                module.undoVsBot();
+                if (state.appMode === 'memorize') {
+                    module.forceStopAIPlayers();
+                    // Nếu luyện cả 2 bên -> Lùi 1 nước
+                    if (state.memorizeSettings.side === 'both') {
+                        if (state.currentNode.parent) module.jumpToNode(state.currentNode.parent);
+                    } else {
+                        // Nếu luyện 1 bên (Có Bot) -> Lùi 2 nước (Dùng jumpToNode để tránh xóa bài học)
+                        if (state.currentNode.parent && state.currentNode.parent.parent) {
+                            module.jumpToNode(state.currentNode.parent.parent);
+                        }
+                    }
+                } else {
+                    // Trong chế độ Đấu Vs Bot thông thường, xóa tương lai khi undo
+                    module.undoVsBot();
+                }
             });
         };
     }
@@ -241,42 +256,42 @@ export function initEvents() {
         };
     }
 
-    function checkVsBotNav(e) {
-        if (state.appMode === 'vsbot') {
+    function checkBlockedNav(e) {
+        if (state.appMode === 'vsbot' || state.appMode === 'memorize') {
             e.preventDefault(); e.stopPropagation();
-            showToast("Bạn không thể tiến/lùi cờ trong chế độ Đấu Máy!");
+            showToast("Bạn không thể tiến/lùi cờ trong chế độ này!");
             return true;
         }
         return false;
     }
 
     const btnAutoPlay = document.getElementById('btn-auto-play');
-    if(btnAutoPlay) btnAutoPlay.onclick = (e) => { if(checkVsBotNav(e)) return; toggleAutoPlay(); };
+    if(btnAutoPlay) btnAutoPlay.onclick = (e) => { if(checkBlockedNav(e)) return; toggleAutoPlay(); };
     
     const btnStart = document.getElementById('btn-start');
     if(btnStart) btnStart.onclick = (e) => { 
-        if(checkVsBotNav(e)) return;
+        if(checkBlockedNav(e)) return;
         if(state.isAutoPlaying) toggleAutoPlay(); 
         if(state.currentNode !== state.rootNode) { forceStopAIPlayers(); jumpToNode(state.rootNode); triggerEngineEvaluation(); }
     };
     
     const btnPrev = document.getElementById('btn-prev');
     if(btnPrev) btnPrev.onclick = (e) => { 
-        if(checkVsBotNav(e)) return;
+        if(checkBlockedNav(e)) return;
         if(state.isAutoPlaying) toggleAutoPlay(); 
         if(state.currentNode.parent) { forceStopAIPlayers(); jumpToNode(state.currentNode.parent); }
     };
     
     const btnNext = document.getElementById('btn-next');
     if(btnNext) btnNext.onclick = (e) => { 
-        if(checkVsBotNav(e)) return;
+        if(checkBlockedNav(e)) return;
         if(state.isAutoPlaying) toggleAutoPlay(); 
         if(state.currentNode.children.length) { forceStopAIPlayers(); jumpToNode(state.currentNode.children[state.currentNode.mainLineIndex]); }
     };
     
     const btnEnd = document.getElementById('btn-end');
     if(btnEnd) btnEnd.onclick = (e) => { 
-        if(checkVsBotNav(e)) return;
+        if(checkBlockedNav(e)) return;
         if(state.isAutoPlaying) toggleAutoPlay();
         if(state.currentNode.children.length) {
             forceStopAIPlayers();
@@ -434,11 +449,228 @@ export function initEvents() {
         showToast("Tính năng đang được phát triển!");  
     };
     
+    // ====== Luyện Nhớ Ván ======
     const menuOpening = document.getElementById('menu-memorize');
-    if(menuOpening) menuOpening.onclick = () => { 
-        closeModal('main-menu-modal'); 
-        showToast("Tính năng đang được phát triển!"); 
-     };
+    if(menuOpening) {
+        menuOpening.onclick = () => { 
+            if (state.appMode === 'memorize') {
+                closeModal('main-menu-modal');
+                return;
+            }
+            closeModal('main-menu-modal'); 
+            openModal('memorize-modal');
+            renderMemorizeList();
+        };
+    }
+    const btnMemoClose = document.getElementById('btn-memo-close');
+    if (btnMemoClose) btnMemoClose.onclick = () => {
+        closeModal('memorize-modal');
+        
+        // Cập nhật lại màu nền (highlight) cho đúng Menu dựa trên chế độ đang đứng
+        document.querySelectorAll('.menu-item').forEach(btn => btn.classList.remove('menu-item-active'));
+        let currentModeId = `menu-${state.appMode}`;
+        if (state.appMode === 'vsbot') currentModeId = 'menu-bot';
+        
+        const activeBtn = document.getElementById(currentModeId);
+        if(activeBtn) activeBtn.classList.add('menu-item-active');
+
+        openModal('main-menu-modal');
+    };
+    const memoFileUpload = document.getElementById('memorize-file-upload');
+    if (memoFileUpload) {
+        memoFileUpload.onchange = (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const extension = file.name.split('.').pop().toLowerCase();
+            const validBinary = ['xqf', 'cbr', 'ccm'];
+            const validText = ['pgn', 'pfc', 'che'];
+            
+            const reader = new FileReader();
+            showLoading(`Đang đọc tệp ${file.name}...`);
+
+            if (validBinary.includes(extension)) {
+                reader.onload = (ev) => {
+                    try {
+                        const buffer = new Uint8Array(ev.target.result);
+                        let nodeData, infoData;
+                        if (extension === 'xqf') { nodeData = vschess.binaryToNode_XQF(buffer); infoData = vschess.binaryToInfo_XQF(buffer); }
+                        else if (extension === 'cbr') { nodeData = vschess.binaryToNode_CBR(buffer); infoData = vschess.binaryToInfo_CBR(buffer); }
+                        else if (extension === 'ccm') { nodeData = vschess.binaryToNode_CCM(buffer); }
+                        
+                        if (nodeData && nodeData.fen) {
+                            state.pendingMemorizeData = { node: nodeData, info: infoData || {} };
+                            closeModal('memorize-modal');
+                            openModal('memorize-setup-modal');
+                        } else showToast("❌ Lỗi đọc File!");
+                    } catch (err) { showToast("❌ Có lỗi xảy ra!"); }
+                    hideLoading();
+                };
+                reader.readAsArrayBuffer(file);
+            } 
+            else if (validText.includes(extension)) {
+                reader.onload = (ev) => {
+                    try {
+                        const textData = ev.target.result;
+                        let nodeData, infoData;
+                        if (extension === 'pgn') { nodeData = vschess.dataToNode_PGN(textData); infoData = vschess.dataToInfo_PGN(textData); }
+                        else if (extension === 'pfc') { nodeData = vschess.dataToNode_PFC(textData); infoData = vschess.dataToInfo_PFC(textData); }
+                        else if (extension === 'che') { nodeData = vschess.dataToNode_QQNew(textData); }
+                        
+                        if (nodeData && nodeData.fen) {
+                            state.pendingMemorizeData = { node: nodeData, info: infoData || {} };
+                            closeModal('memorize-modal');
+                            openModal('memorize-setup-modal');
+                        } else showToast("❌ Lỗi đọc File!");
+                    } catch (err) { showToast("❌ Có lỗi xảy ra!"); }
+                    hideLoading();
+                };
+                reader.readAsText(file);
+            } else {
+                hideLoading();
+                showToast(`❌ Định dạng .${extension} không được hỗ trợ!`);
+            }
+            // Reset input để chọn lại file cũ nếu cần
+            e.target.value = '';
+        };
+    }
+    const memoSetupBlind = document.getElementById('memo-setup-blind');
+    const memoSetupPath = document.getElementById('memo-setup-path');
+    if (memoSetupBlind && memoSetupPath) {
+        memoSetupBlind.onchange = (e) => {
+            if (e.target.checked) {
+                // YÊU CẦU 3: Bật Cờ mù -> Tự động đổi về Random và Khóa lại
+                memoSetupPath.value = 'random';
+                memoSetupPath.disabled = true;
+                memoSetupPath.style.opacity = '0.5';
+            } else {
+                // Tắt cờ mù -> Mở khóa
+                memoSetupPath.disabled = false;
+                memoSetupPath.style.opacity = '1';
+            }
+        };
+    }
+    const btnMemoSetupCancel = document.getElementById('btn-memo-setup-cancel');
+    if (btnMemoSetupCancel) {
+        btnMemoSetupCancel.onclick = () => {
+            state.pendingMemorizeData = null; // Hủy data
+            closeModal('memorize-setup-modal');
+            openModal('memorize-modal');
+        };
+    }
+
+    const btnMemoSetupConfirm = document.getElementById('btn-memo-setup-confirm');
+    if (btnMemoSetupConfirm) {
+        btnMemoSetupConfirm.onclick = () => {
+            if (!state.pendingMemorizeData) return;
+            
+            // 1. Lưu Setting
+            state.memorizeSettings.side = document.getElementById('memo-setup-side').value;
+            state.memorizeSettings.path = document.getElementById('memo-setup-path').value;
+            state.memorizeSettings.isBlind = document.getElementById('memo-setup-blind').checked;
+
+            state.memoMistakesRed = 0;
+            state.memoMistakesBlack = 0;
+            
+            // 2. Chuyển UI sang AppMode mới (Đăng ký Mode 'memorize')
+            state.appMode = 'memorize';
+            state.appSettings.appMode = 'memorize';
+            
+            // Xử lý bật/tắt Cờ mù UI
+            state.isPeeking = !state.memorizeSettings.isBlind; 
+            document.body.classList.remove('mode-vsbot', 'mode-blind', 'mode-memorize');
+            document.body.classList.add('mode-memorize');
+            if (state.memorizeSettings.isBlind) {
+                document.body.classList.add('mode-blind');
+            }
+
+            const titleHeader = document.getElementById('tab-title');
+            if (titleHeader) {
+                titleHeader.innerHTML = `
+                    <strong style="font-size: 17px; color: #333; display: block; width: 100%;">LUYỆN NHỚ VÁN</strong>
+                    
+                    <!-- Lượt đi (Luôn hiện) -->
+                    <div id="blind-turn-indicator" style="display:block; margin-top: 15px; font-size: 16px; font-weight: bold; color: #555;">
+                        Lượt đi: <span id="blind-turn-text">Bên Đỏ</span>
+                    </div>
+                    
+                    <!-- Số lần đi sai (Luôn hiện) -->
+                    <div id="memo-mistakes-indicator" style="display: flex; justify-content: center; gap: 15px; margin-top: 5px; font-size: 13px; font-weight: bold;">
+                        <span style="color: #d32f2f;">Đỏ đi sai: <span id="memo-err-red">0</span></span>
+                        <span style="color: #000;">Đen đi sai: <span id="memo-err-black">0</span></span>
+                    </div>
+                    
+                    <!-- Nút nhánh biến -->
+                    <div id="memo-variation-container" style="display: none; margin-top: 15px; width: 100%; flex-direction: column; gap: 8px;">
+                        <div style="font-size: 13px; color: #d32f2f; margin-bottom: 5px;">Mời bạn chọn biến:</div>
+                    </div>
+                `;
+            }
+
+            // 3. ĐẢM BẢO HỦY LẠI CÁC LUỒNG AI CŨ TRƯỚC KHI TẠO LUỒNG MỚI
+            import('./game.js').then(m => {
+                // ĐẶT forceStopAIPlayers LÊN ĐẦU ĐỂ XÓA RÁC
+                m.forceStopAIPlayers();
+
+                // SAU ĐÓ MỚI CẤP QUYỀN ĐIỀU KHIỂN CHO BOT (Không bị dọn dẹp nhầm)
+                const side = state.memorizeSettings.side;
+                if (side === 'red') { state.aiPlaysRed = false; state.aiPlaysBlack = true; }
+                else if (side === 'black') { state.aiPlaysRed = true; state.aiPlaysBlack = false; }
+                else { state.aiPlaysRed = false; state.aiPlaysBlack = false; }
+
+                // Bơm dữ liệu ván đấu lên RAM
+                state.gameList = [{ info: state.pendingMemorizeData.info, node: state.pendingMemorizeData.node }];
+                
+                m.loadGameFromList(0);
+                m.applyAutoBoardFlip();
+
+                m.triggerMemorizeBot();
+                
+                // Nếu Bot đi trước (Luyện bên Đen -> Bot cầm Đỏ)
+                if (state.aiPlaysRed) {
+                    setTimeout(() => m.triggerMemorizeBot(), 500);
+                }
+            });
+
+            closeModal('memorize-setup-modal');
+            showToast("✅ Bắt đầu Luyện Nhớ Ván!");
+        };
+    }
+    const btnMemoRetry = document.getElementById('btn-memo-retry'); // Modal Kết Thúc Luyện Nhớ
+    if (btnMemoRetry) {
+        btnMemoRetry.onclick = () => {
+            closeModal('memo-gameover-modal');
+            state.memoMistakesRed = 0;
+            state.memoMistakesBlack = 0;
+            
+            import('./game.js').then(m => {
+                m.forceStopAIPlayers();
+                m.jumpToNode(state.rootNode); // Quay về nước cờ đầu tiên
+                
+                // Trả lại quyền cho Bot theo Setting
+                const side = state.memorizeSettings.side;
+                if (side === 'red') { state.aiPlaysRed = false; state.aiPlaysBlack = true; }
+                else if (side === 'black') { state.aiPlaysRed = true; state.aiPlaysBlack = false; }
+                else { state.aiPlaysRed = false; state.aiPlaysBlack = false; }
+                
+                m.jumpToNode(state.rootNode);
+                m.updateBlindTurnUI();
+                //if (state.aiPlaysRed) setTimeout(() => m.triggerMemorizeBot(), 300);
+            });
+        };
+    }
+    const btnMemoNew = document.getElementById('btn-memo-new');
+    if (btnMemoNew) {
+        btnMemoNew.onclick = () => {
+            closeModal('memo-gameover-modal');
+
+            state.memoMistakesRed = 0;
+            state.memoMistakesBlack = 0;
+
+            openModal('memorize-modal');
+            renderMemorizeList(); // Mở lại danh sách thư viện
+        };
+    }
+    //=============================
 
      // ====== Thư Viện ======
     const menuLibrary = document.getElementById('menu-library');
@@ -775,6 +1007,12 @@ export function initEvents() {
     if(btnNewGame) {
         btnNewGame.onclick = () => {
             if (state.isEditMode) { initGame(); return; }
+
+            if (state.appMode === 'memorize') {
+                openModal('memorize-modal');
+                renderMemorizeList();
+                return;
+            }
             
             if (state.appMode === 'vsbot') {
                 state.vsBotSetupOrigin = 'toolbar'; 

@@ -842,3 +842,44 @@ body.mode-blind #panel-ai { flex: 1 1 100%; }
 }
 .lib-btn-del:hover { background: #ffebee; border-color: #ffcdd2; }
 .lib-btn-del:active { transform: scale(0.9); }
+
+/* =========================================================
+   CHẾ ĐỘ LUYỆN NHỚ VÁN (MEMORIZE MODE)
+   ========================================================= */
+/* 1. Ẩn đích danh các Button và Panel gian lận (Thêm cả nút #btn-peek vào đây) */
+body.mode-memorize #btn-ai-red,
+body.mode-memorize #btn-ai-black,
+body.mode-memorize #btn-analyze,
+body.mode-memorize #btn-go-instant,
+body.mode-memorize #btn-import,
+body.mode-memorize #btn-export,
+body.mode-memorize #btn-edit, 
+body.mode-memorize #btn-peek, 
+body.mode-memorize #panel-history,
+body.mode-memorize .ai-tab-btn:not([data-tab="title"]), 
+body.mode-memorize #tab-pikafish,
+body.mode-memorize #tab-cloudbook,
+body.mode-memorize #tab-comment {
+    display: none !important;
+}
+
+/* 2. Đảm bảo Tab Tiêu đề luôn hiện rõ ràng */
+body.mode-memorize #tab-title {
+    display: flex !important;
+    flex-direction: column;
+    width: 100%;
+}
+
+/* 3. Hiện nút Đi Lại (Undo) */
+body.mode-memorize #btn-undo { display: flex !important; }
+
+/* 4. Vô hiệu hóa NavBar (Ép hiển thị, làm mờ và cấm click tuyệt đối) */
+body.mode-memorize #nav-bar,
+body.mode-memorize #nav-bar button {
+    display: flex !important;
+    opacity: 0.5;
+    pointer-events: none !important;
+}
+
+/* Ép panel AI chiếm hết phần không gian trống do Lịch sử nước đi bị ẩn */
+body.mode-memorize #panel-ai { flex: 1 1 100%; }
