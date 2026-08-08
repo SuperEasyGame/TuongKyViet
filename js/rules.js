@@ -25,8 +25,8 @@ export function checkDraw60Moves(node) {
             count++; // Chỉ cộng dồn những nước KHÔNG chiếu
         }
 
-        // 60 nước cho mỗi bên = 120 nửa nước (plies)
-        if (count >= 120) { 
+        // 30 nước cho mỗi bên = 60 nửa nước (plies)
+        if (count >= 60) { 
             return true;
         }
 
@@ -36,9 +36,9 @@ export function checkDraw60Moves(node) {
     return false;
 }
 
-// 2. LỌC NƯỚC ĐI HỢP LỆ (CẤM NƯỚC CHIẾU THỨ 6 LIÊN TIẾP)
+// 2. LỌC NƯỚC ĐI HỢP LỆ (CẤM NƯỚC CHIẾU THỨ 11 LIÊN TIẾP)
 function filterConsecutiveChecks(legalMoves, currentFen) {
-    if (state.appMode !== 'vsbot' && state.appMode !== 'puzzle') return legalMoves;
+    if (state.appMode !== 'vsbot') return legalMoves;
 
     let checkStreak = 0;
     // Bắt đầu truy vết từ nước đi TRƯỚC ĐÓ CỦA CÙNG MỘT PHE
@@ -61,8 +61,8 @@ function filterConsecutiveChecks(legalMoves, currentFen) {
         }
     }
 
-    // Nếu đã truy chiếu 5 lần liên tiếp -> Quét và Xóa mọi nước chiếu ở lượt thứ 6
-    if (checkStreak >= 5) {
+    // Nếu đã truy chiếu 10 lần liên tiếp -> Quét và Xóa mọi nước chiếu ở lượt thứ 11
+    if (checkStreak >= 10) {
         return legalMoves.filter(move => {
             const testFen = vschess.fenMovePiece(currentFen, move);
             return !vschess.checkThreat(testFen); // Bỏ qua nếu đi nước này lại tiếp tục chiếu

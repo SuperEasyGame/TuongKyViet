@@ -192,6 +192,19 @@ function applyEngineHardwareLimits(type) {
     }
     
     storage.saveAnalysis(state.aiSettings); 
+
+    // 4. [THÊM MỚI] ẨN NÚT "ĐI NGAY" NẾU LÀ BẢN SINGLE
+    const btnGoInstant = document.getElementById('btn-go-instant');
+    if (btnGoInstant) {
+        if (isSingle) {
+            // Ẩn hoàn toàn khỏi thanh toolbar
+            btnGoInstant.style.display = 'none'; 
+        } else {
+            // Trả lại hiển thị mặc định. Các class như hide-on-vsbot 
+            // có chứa !important trong CSS nên sẽ không bị xung đột.
+            btnGoInstant.style.display = ''; // Sửa btn thành btnGoInstant
+        }
+    }
 }
 
 export async function initPikafish(forceType = null) {
@@ -403,12 +416,15 @@ export function applyEngineSettings() {
 
 let currentCloudFetchId = 0;
 export function fetchCloudBook(fen) {
+    const isRedTurn = fen.split(" ")[1] === "w";
+    const isAITurn = (isRedTurn && state.aiPlaysRed) || (!isRedTurn && state.aiPlaysBlack);
+
+    // Xử lý khi mất mạng hoàn toàn (Offline)
     if (!navigator.onLine) {
-        setTimeout(() => {
-            triggerEngineOnly();
-        }, 10);
+        if (isAITurn) setTimeout(() => triggerEngineOnly(), 10);
         return; 
     }
+    
     const fetchId = ++currentCloudFetchId;
     const container = document.getElementById('cloudbook-list-container');
     if (!container) return;
@@ -417,36 +433,36 @@ export function fetchCloudBook(fen) {
     let shortFen = fen.split(" ").slice(0, 2).join(" ");
     let url = `https://www.chessdb.cn/chessdb.php?action=queryall&board=${encodeURIComponent(shortFen)}`;
     
-    fetch(url).then(res => res.text()).then(text => {
+    // TẠO ABORT CONTROLLER (Ép timeout ngắt kết nối sau 2 giây nếu server nghẽn)
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3000);
+
+    fetch(url, { signal: controller.signal }).then(res => {
+        clearTimeout(timeoutId); // Xóa bộ đếm nếu server trả lời sớm
+        return res.text();
+    }).then(text => {
         if (fetchId !== currentCloudFetchId) return;
-        const isRedTurn = fen.split(" ")[1] === "w";
-        const isAITurn = (isRedTurn && state.aiPlaysRed) || (!isRedTurn && state.aiPlaysBlack);
+        
         const currentRoundNum = parseInt(fen.split(" ")[5]) || 1;
         let effectiveCloudLimit = state.appMode === 'vsbot' ? 1 : state.appSettings.cloudBookLimit;
         const canUseCloudBook = state.appSettings.cloudBookEnabled && (currentRoundNum <= effectiveCloudLimit);
         let isValidCloudData = text && !text.includes("unknown") && !text.includes("invalid") && !text.includes("checkmate") && !text.includes("stalemate");
 
+        // TRƯỜNG HỢP 1: Lượt máy đi VÀ Cloud Book CÓ sách
         if (isAITurn && canUseCloudBook && isValidCloudData) {
             let moves = text.split('|');
             let firstMoveData = moves[0].split(',');
             let moveObj = {};
             firstMoveData.forEach(p => { let [k, v] = p.split(':'); moveObj[k] = v; });
+            
             if (moveObj.move && getStrictLegalMoves(state.currentSituation, state.currentNode.fen).includes(moveObj.move)) {
-                
-                let delayMs = 400;
-                if (state.appMode !== 'vsbot') {
-                    delayMs = (state.aiSettings.moveTime || 1) * 1000;
-                } else {
-                    delayMs = 1000;
-                }
-
+                let delayMs = state.appMode !== 'vsbot' ? (state.aiSettings.moveTime || 1) * 1000 : 1000;
                 showAILoading();
-
+                
                 clearTimeout(cloudBookTimeoutId);
                 cloudBookTimeoutId = setTimeout(() => { 
                     const isRedTurnNow = state.currentNode.fen.split(" ")[1] === "w";
                     const willAIOperate = (isRedTurnNow && state.aiPlaysRed) || (!isRedTurnNow && state.aiPlaysBlack);
-                    
                     if (willAIOperate) {
                         hideAILoading();
                         executeMove(moveObj.move); 
@@ -458,8 +474,10 @@ export function fetchCloudBook(fen) {
             }
         }
 
-        if (isAITurn || state.isAnalyzing) triggerEngineOnly();
+        // TRƯỜNG HỢP 2: Nếu là lượt Máy đi nhưng HẾT SÁCH (hoặc cờ lạ) -> Mở khóa cho Pikafish tự nghĩ
+        if (isAITurn) triggerEngineOnly();
 
+        // HIỂN THỊ DANH SÁCH LÊN UI
         if (!isValidCloudData) {
             container.innerHTML = '<div style="text-align: center; color: #888; margin-top: 10px;">Không có dữ liệu khai cuộc</div>';
             return;
@@ -494,10 +512,14 @@ export function fetchCloudBook(fen) {
             }
         });
         if (!hasValidMove) container.innerHTML = '<div style="text-align: center; color: #888; margin-top: 10px;">Không có dữ liệu khai cuộc</div>';
+        
     }).catch(err => {
+        // TRƯỜNG HỢP 3: CÁP QUANG ĐỨT / SERVER LỖI -> HẾT 2 GIÂY SẼ BỊ NÉM VÀO ĐÂY
         if (fetchId !== currentCloudFetchId) return;
         container.innerHTML = '<div style="text-align: center; color: #d32f2f; margin-top: 10px;">Lỗi kết nối máy chủ CloudDB</div>';
-        triggerEngineOnly();
+        
+        // Giải thoát cho Bot nếu nó đang phải chờ
+        if (isAITurn) triggerEngineOnly();
     });
 }
 
@@ -556,8 +578,18 @@ function executePendingAction() {
 
     setTimeout(() => {
         if (action === 'eval') {
+            const isRedTurn = state.currentNode.fen.split(" ")[1] === "w";
+            const willAIPlay = (isRedTurn && state.aiPlaysRed) || (!isRedTurn && state.aiPlaysBlack);
+
+            // NẾU CHỈ LÀ PHÂN TÍCH (Không phải lượt Máy tự đi)
+            // -> Bật Pikafish tính toán NGAY LẬP TỨC, không cần đợi Cloud Book!
+            if (!willAIPlay && state.isAnalyzing) {
+                triggerEngineOnly();
+            }
+
+            // Gọi Cloud Book chạy ngầm (Nó sẽ tự update UI lúc tải xong)
             fetchCloudBook(state.currentNode.fen);
-        } 
+        }
         else if (action === 'hint') {
             const style = state.vsBotSettings.botStyle;
             let profile = (style === 'human') ? botProfiles.human[9] : botProfiles.standard[9];

@@ -385,8 +385,8 @@ function drawAnimatingPiece() {
 }
 
 function drawBestMoveArrowCanvas() {
-    if (state.pvLines.length === 0 || state.isAnimating || state.isEditMode || state.appMode === 'vsbot' || state.appMode === 'blind' || state.appMode === 'memorize') return;
-
+    if (state.pvLines.length === 0 || state.isAnimating || state.isEditMode || state.appMode === 'vsbot' 
+        || state.appMode === 'blind' || state.appMode === 'memorize' || state.appMode === 'puzzle') return;
     // Kiểm tra xem Động cơ AI có đang được bật hay không (Phân tích, Máy cầm Đỏ, Máy cầm Đen)
     const isAILive = state.isAnalyzing || state.aiPlaysRed || state.aiPlaysBlack;
     // NẾU Cài đặt Tắt Mũi tên NHƯNG AI đã bị tắt -> Vẫn vẽ mũi tên đóng băng cuối cùng!
@@ -480,6 +480,12 @@ export function renderMoveHistory() {
     container.innerHTML = ''; 
     const path = getMainLine(); 
 
+    // BƯỚC 1: Kiểm tra xem Bàn cờ gốc (lúc chưa đi nước nào) là Đỏ hay Đen đi trước
+    let isRootBlack = false;
+    if (path.length > 0 && path[0].fen) {
+        isRootBlack = path[0].fen.split(" ")[1] === "b";
+    }
+
     for (let i = 0; i < path.length; i++) {
         const node = path[i]; 
         ensureNodeData(node);
@@ -493,8 +499,19 @@ export function renderMoveHistory() {
             if (i > state.currentStepNum) btn.classList.add('move-future');
             
             const wasRedMove = node.fen.split(" ")[1] === "b";
+            
+            // Lấy số Round thực tế từ FEN
+            let rawRoundNum = parseInt(node.roundNum, 10);
+            if (isNaN(rawRoundNum) || rawRoundNum === 0) rawRoundNum = 1;
+
+            // BƯỚC 2: CÔNG THỨC BÙ TRỪ 
+            // Nếu Đen đi trước -> Trừ đi 1 để Đỏ hiển thị đúng số 1
+            let displayRoundNum = rawRoundNum - (isRootBlack ? 1 : 0);
+            if (displayRoundNum < 1) displayRoundNum = 1; // Đảm bảo không bao giờ < 1
+            
             let htmlStr = '';
-            if (wasRedMove) htmlStr = `<span class="move-num">${node.roundNum}.</span> <span class="move-text text-red">${node.notation}</span>`;
+            // Gắn displayRoundNum vào html của quân Đỏ
+            if (wasRedMove) htmlStr = `<span class="move-num">${displayRoundNum}.</span> <span class="move-text text-red">${node.notation}</span>`;
             else htmlStr = `<span class="move-num"></span> <span class="move-text text-black">${node.notation}</span>`;
 
             if (node.parent && node.parent.children.length > 1) {

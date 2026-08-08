@@ -112,7 +112,7 @@ let saveTimeout = null;
 let isSaving = false;
 
 export async function saveGameState() {
-    if (isSaving || state.isEditMode || state.gameList.length === 0) return;
+    if (isSaving || state.isEditMode || state.gameList.length === 0 || state.appMode === 'memorize' || state.appMode === 'puzzle') return;
     isSaving = true;
     
     try {
@@ -215,14 +215,79 @@ export function handleFileUpload(file) {
     }
 }
 
-export function handleImageRecognition(file) {
+// Hàm nén ảnh trước khi gửi lên Server
+function compressImage(file, maxWidth = 1920, maxHeight = 1920, quality = 0.8) {
+    return new Promise((resolve) => {
+        // Chỉ xử lý nếu file là ảnh, nếu không trả về file gốc
+        if (!file.type.startsWith('image/')) {
+            return resolve(file);
+        }
+
+        const img = new Image();
+        const objectUrl = URL.createObjectURL(file);
+
+        img.onload = () => {
+            // Giải phóng bộ nhớ ngay sau khi load xong ảnh
+            URL.revokeObjectURL(objectUrl);
+
+            let { width, height } = img;
+
+            // Tính toán kích thước mới giữ nguyên tỷ lệ khung hình
+            if (width > maxWidth || height > maxHeight) {
+                const ratio = Math.min(maxWidth / width, maxHeight / height);
+                width = Math.round(width * ratio);
+                height = Math.round(height * ratio);
+            }
+
+            // Tạo canvas ảo
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+
+            // Vẽ ảnh lên canvas
+            ctx.drawImage(img, 0, 0, width, height);
+
+            // Xuất file ảnh JPEG với chất lượng 0.8
+            canvas.toBlob((blob) => {
+                if (!blob) {
+                    return resolve(file); // Trả về file gốc nếu tạo blob thất bại
+                }
+                
+                // Đổi đuôi file thành .jpg
+                const newFileName = file.name.replace(/\.[^/.]+$/, "") + ".jpg";
+                const compressedFile = new File([blob], newFileName, {
+                    type: 'image/jpeg',
+                    lastModified: Date.now()
+                });
+                
+                resolve(compressedFile); // Trả về file đã nén
+            }, 'image/jpeg', quality);
+        };
+
+        img.onerror = () => {
+            // Xử lý giải phóng bộ nhớ và trả về file gốc nếu lỗi
+            URL.revokeObjectURL(objectUrl);
+            resolve(file);
+        };
+
+        img.src = objectUrl;
+    });
+}
+
+export async function handleImageRecognition(file) {
     if (state.isEditMode) { showToast("❌ Vui lòng tắt chế độ Xếp quân trước khi quét ảnh!"); return; }
     if (!navigator.onLine) { showToast("❌ Bạn đang Offline! Cần kết nối Internet để quét ảnh."); return; }
     if (!file) return;
 
-    showLoading("Đang quét ảnh bằng AI...");
+    showLoading("Đang nén và quét ảnh bằng AI...");
+    
+    // Gọi hàm nén ảnh trước khi nạp vào FormData
+    const compressedFile = await compressImage(file, 1920, 1920, 0.8);
+
     const formData = new FormData(); 
-    formData.append('image', file);
+    // Sử dụng compressedFile thay vì file gốc
+    formData.append('image', compressedFile);
 
     fetch('/api/pikafish-recognize', { method: 'POST', body: formData })
     .then(res => res.json())
@@ -242,11 +307,11 @@ export function handleImageRecognition(file) {
 
             // Ghi đè bàn cờ bằng cách cập nhật gameList hiện tại
             let rawNode = { fen: fen, comment: "", next: [], defaultIndex: 0 };
-            state.gameList = [{ info: Object.assign({}, defaultGameInfo), node: rawNode }]; // Xóa rỗng list cũ, tạo list mới chứa 1 ván là FEN vừa quét
-            loadGameFromList(0); // Bơm lên RAM
+            state.gameList = [{ info: Object.assign({}, defaultGameInfo), node: rawNode }]; 
+            loadGameFromList(0); 
             clearArrow();
             
-            // Ép hệ thống chuyển sang chế độ Xếp quân để người dùng kiểm tra lại quân cờ
+            // Ép hệ thống chuyển sang chế độ Xếp quân
             const btn = document.getElementById('btn-edit');
             if(!state.isEditMode) {
                 state.isEditMode = true;
@@ -266,7 +331,7 @@ export function handleImageRecognition(file) {
                 }
             }
 
-            // Gán dữ liệu so sánh cho trình Editor (so sánh với hình cờ thực tế TRƯỚC KHI quét ảnh)
+            // Gán dữ liệu so sánh cho trình Editor
             state.preEditFenBase = trueOriginalFen.split(" ")[0];
             state.preEditTurn = trueOriginalFen.split(" ")[1] || 'w';
             state.preEditNode = trueOriginalNode;

@@ -855,6 +855,7 @@ body.mode-memorize #btn-import,
 body.mode-memorize #btn-export,
 body.mode-memorize #btn-edit, 
 body.mode-memorize #btn-peek, 
+body.mode-memorize #btn-hint,
 body.mode-memorize #panel-history,
 body.mode-memorize .ai-tab-btn:not([data-tab="title"]), 
 body.mode-memorize #tab-pikafish,
@@ -883,3 +884,35 @@ body.mode-memorize #nav-bar button {
 
 /* Ép panel AI chiếm hết phần không gian trống do Lịch sử nước đi bị ẩn */
 body.mode-memorize #panel-ai { flex: 1 1 100%; }
+
+/* =========================================================
+   DANH SÁCH GIẢI BÀI TẬP
+   ========================================================= */
+.puzzle-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 15px;
+    background: #fff;
+    border: 1px solid #eee;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-size: 15px;
+    color: #333;
+    user-select: none;
+    -webkit-user-select: none;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.02);
+}
+.puzzle-item:hover { background: #f5f5f5; border-color: #ccc; }
+.puzzle-item:active { transform: scale(0.98); }
+.puzzle-icon { font-size: 20px; line-height: 1; }
+.puzzle-name { flex: 1; text-align: left; font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* =========================================================
+   CHẾ ĐỘ GIẢI BÀI TẬP (PUZZLE MODE)
+   ========================================================= */
+body.mode-puzzle .hide-on-puzzle { display: none !important; }
+body.mode-puzzle .puzzle-only { display: flex !important; }
+
+/* Vô hiệu hóa List nước đi trong chế độ Giải Bài Tập */
+body.mode-puzzle #move-list-container { pointer-events: none; }

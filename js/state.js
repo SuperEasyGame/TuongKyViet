@@ -70,6 +70,20 @@ export const state = {
     
     pvLines: [],
 
+    puzzleHistory: [],
+    currentPuzzleFolder: { path: 'data', name: '' },
+    puzzleFens: [],
+    isViewingPuzzleFens: false,
+    currentPuzzleName: "",   
+    currentPuzzleIndex: 0,
+    currentPuzzleMaxMoves: 1000,
+    currentPuzzleKey: "", 
+    currentPuzzleSolved: [],         
+    currentPuzzleSolvedKey: "", 
+
+    puzzleOpenedFromMenu: false,      
+    memorizeOpenedFromMenu: false,
+
     appSettings: savedSystem,
     aiSettings: savedAnalysis,
     vsBotSettings: savedVsBot,
@@ -87,7 +101,7 @@ export const state = {
     editingParentNode: null,
 
     pendingMemorizeData: null, // Chứa ván cờ tạm thời khi chọn/tải file
-    memorizeSettings: { side: 'red', path: 'manual', isBlind: false }, // Lưu cấu hình
+    memorizeSettings: { side: 'red', path: 'manual', isBlind: false, startNodeId: null, endNodeId: null}, // Lưu cấu hình
     memoMistakesRed: 0,
     memoMistakesBlack: 0
 };
