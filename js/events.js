@@ -3,11 +3,12 @@ import { state, storage } from './state.js';
 import { getWorkspace , saveWorkspace, deleteWorkspace } from './db.js';
 import { toggleAutoPlay, forceStopAIPlayers, jumpToNode, initGame, loadGameFromList } from './game.js';
 import { triggerEngineEvaluation, applyEngineSettings, getDeviceTier } from './engine.js';
-import { openModal, closeModal, updateTurnToggleUI, showLoading, hideLoading, showToast, renderLibraryList, confirmDeleteLibraryItem, renderMemorizeList } from './ui.js';
+import { openModal, closeModal, updateTurnToggleUI, showLoading, hideLoading, showToast, renderLibraryList, confirmDeleteLibraryItem, renderMemorizeList, syncBookTabUI } from './ui.js';
 import { finishEditing, turnOnEditMode } from './editor.js';
 import { handleImageRecognition, handleFileUpload, getMoveListAndComments, copyToClipboard, getVschessNodeTree, downloadFile, getFormattedDate, formatGameInfoString, saveGameState } from './io.js';
 import { renderBoardFull, drawBestMoveArrow, clearArrow } from './board.js';
 import { START_FEN, VschessErrorDict } from './config.js';
+import { uploadLocalBook, deleteLocalBook, loadLocalBookFromDB } from './localbook.js';
 
 let pendingDeletePuzKey = "";
 
@@ -46,13 +47,12 @@ function setupStepper(stateKey, inputId, minusId, plusId, min, defaultMax, step,
     }
 
     function updateState(isFromUserClick = false) {
-        // Lấy giới hạn Max động từ thuộc tính HTML (nếu engine.js đã can thiệp)
         let currentMax = parseFloat(input.getAttribute('max')) || defaultMax;
         let val = parseFloat(input.value);
         
         if (isNaN(val)) val = targetObj[stateKey];
         if (val < min) val = min;
-        if (val > currentMax) val = currentMax; // Khóa theo Max Động
+        if (val > currentMax) val = currentMax;
         
         if (isHash && !hashValues.includes(val)) {
             val = hashValues.reduce((prev, curr) => Math.abs(curr - val) < Math.abs(prev - val) ? curr : prev);
@@ -68,7 +68,7 @@ function setupStepper(stateKey, inputId, minusId, plusId, min, defaultMax, step,
         }
         
         btnMinus.disabled = val <= min;
-        btnPlus.disabled = val >= currentMax; // Nút plus mờ đi dựa trên Max Động
+        btnPlus.disabled = val >= currentMax; 
     }
 
     btnMinus.onclick = () => {
@@ -90,7 +90,6 @@ function setupStepper(stateKey, inputId, minusId, plusId, min, defaultMax, step,
         let val = parseFloat(input.value);
         if (isHash) {
             let idx = hashValues.indexOf(val);
-            // Chỉ cho tăng Hash nếu mốc tiếp theo <= Max Động
             if (idx < hashValues.length - 1 && hashValues[idx + 1] <= currentMax) {
                 input.value = hashValues[idx + 1];
             }
@@ -108,10 +107,11 @@ function setupStepper(stateKey, inputId, minusId, plusId, min, defaultMax, step,
     
     updateState(false); 
 }
+
 function resetAIUI() {
     if (!state.isAnalyzing && !state.aiPlaysRed && !state.aiPlaysBlack) {
         import('./engine.js').then(module => {
-            module.forceStopEngine(); // Dùng hàm mới thay vì gửi chữ "stop"
+            module.forceStopEngine(); 
         });
     }
 }
@@ -131,7 +131,6 @@ async function switchMode(newMode, customFen = START_FEN) {
 
     showLoading("Đang tải dữ liệu...");
 
-    // TẮT TRIỆT ĐỂ TOÀN BỘ CÁC TRẠNG THÁI VÀ NÚT AI TRƯỚC KHI ĐỔI MODE
     state.isAnalyzing = false;
     state.aiPlaysRed = false;
     state.aiPlaysBlack = false;
@@ -152,7 +151,6 @@ async function switchMode(newMode, customFen = START_FEN) {
         state.gameList = [];
     }
 
-    // Đợi 50ms cho trình duyệt kịp render cái UI Loading hiện lên màn hình
     setTimeout(async () => {
         closeModal('main-menu-modal');
         forceStopAIPlayers();
@@ -162,14 +160,12 @@ async function switchMode(newMode, customFen = START_FEN) {
         
         try { storage.saveSystem(state.appSettings); } catch(e) {}
 
-        // SỬA: Đợi hàm initGame (chứa inflateTree tốn CPU) chạy xong hoàn toàn
         if (customFen !== START_FEN) {
             await initGame(customFen, false); 
         } else {
             await initGame(START_FEN, true); 
         }
         
-        // Sau khi dữ liệu đã sẵn sàng trên bàn cờ, mới tắt Loading
         hideLoading(); 
     }, 50);
 }
@@ -245,7 +241,6 @@ export function initEvents() {
                         }
                     }
                 } else if (state.appMode === 'puzzle') {
-                    // GIẢI BÀI TẬP: Lùi 2 nước (Xóa lịch sử)
                     module.undoVsBot();
                 } else {
                     module.undoVsBot();
@@ -259,23 +254,16 @@ export function initEvents() {
         btnHint.onclick = () => {
             if (btnHint.classList.contains('disabled') || !state.engineModule) return;
             
-            // XỬ LÝ GỢI Ý CHO GIẢI BÀI TẬP (AI TỰ ĐI GIÚP PLAYER)
             if (state.appMode === 'puzzle') {
-                showToast(`💡 Máy đang suy nghĩ nước giải...`);
+                //showToast(`💡 Máy đang suy nghĩ nước giải...`);
                 btnHint.classList.add('disabled');
                 
                 const isRedTurn = state.currentNode.fen.split(" ")[1] === "w";
-                // Tạm thời trao quyền cho Máy cầm quân của người chơi
                 if (isRedTurn) state.aiPlaysRed = true; else state.aiPlaysBlack = true;
                 
-                // Kích hoạt Engine. Vì cờ "aiPlays..." đã bật nên Engine sẽ tự động
-                // sử dụng cấu hình Phân Tích (Depth, MoveTime) để tìm nước cờ và TỰ ĐI.
                 import('./engine.js').then(module => {
                     module.triggerEngineEvaluation(); 
                 });
-                
-                // Việc thu hồi quyền AI sẽ do hàm executeMove() trong game.js đảm nhận
-                // sau khi quân cờ đã được di chuyển xong!
                 return;
             }
             
@@ -363,30 +351,26 @@ export function initEvents() {
     // ====== Đấu Vs Bot ======
     const menuBot = document.getElementById('menu-bot');
     if(menuBot) {
-        // THÊM ASYNC VÀO ĐÂY
         menuBot.onclick = async () => { 
             try {
-                // Kiểm tra xem Workspace của Bot trong IndexedDB có dữ liệu không
                 const workspace = await getWorkspace('vsbot_workspace');
-                
                 if (workspace && workspace.gameList && workspace.gameList.length > 0) {
-                    switchMode('vsbot');// Nếu có ván cờ cũ -> Vào thẳng chế độ Bot (switchMode sẽ tự gọi initGame load từ DB)
+                    switchMode('vsbot');
                 } else {
-                    state.vsBotSetupOrigin = 'menu'; // Nếu trống trơn -> Bật Panel Thiết lập
+                    state.vsBotSetupOrigin = 'menu'; 
                     closeModal('main-menu-modal');
                     document.getElementById('setup-bot-fen').value = START_FEN;
                     document.getElementById('setup-bot-style').value = state.vsBotSettings.botStyle || 'standard';
                     openModal('vsbot-setup-modal');
                 }
             } catch (e) {
-                // Đề phòng lỗi DB, mặc định bật Panel
                 state.vsBotSetupOrigin = 'menu';
                 closeModal('main-menu-modal');
                 openModal('vsbot-setup-modal');
             }
         };
     }
-    // Modal Thiết lập Ván đấu BOT
+
     document.getElementById('btn-setup-cancel').onclick = () => {
         closeModal('vsbot-setup-modal');
         
@@ -394,7 +378,6 @@ export function initEvents() {
             openModal('main-menu-modal');
         } 
         else if (state.vsBotSetupOrigin === 'import_mode') {
-            // Không làm gì cả, màn hình vẫn giữ nguyên ván cờ cũ
         }
         else if (state.vsBotSetupOrigin === 'edit_mode') {
             state.currentNode = state.preEditNode;
@@ -457,19 +440,16 @@ export function initEvents() {
             switchMode('vsbot', fenInput); 
         }
     };
-    // =========================
 
     const menuBlind = document.getElementById('menu-blind');
     if(menuBlind) {
         menuBlind.onclick = async () => { 
             try {
-                // Kiểm tra xem Workspace của Cờ Mù trong IndexedDB có dữ liệu không
                 const workspace = await getWorkspace('blind_workspace');
-                
                 if (workspace && workspace.gameList && workspace.gameList.length > 0) {
-                    switchMode('blind'); // Load ván cũ
+                    switchMode('blind'); 
                 } else {
-                    switchMode('blind', START_FEN); // Khởi tạo ván mới
+                    switchMode('blind', START_FEN); 
                 }
             } catch (e) {
                 switchMode('blind', START_FEN);
@@ -488,7 +468,6 @@ export function initEvents() {
             
             openModal('puzzle-modal');
             
-            // KIỂM TRA: Nếu đang xem FEN thì refresh (Có setTimeout), nếu chưa thì load Folder
             if (state.isViewingPuzzleFens) {
                 setTimeout(() => refreshPuzzleListUI(), 100);
             } else {
@@ -516,30 +495,27 @@ export function initEvents() {
     if (btnPuzzleBack) btnPuzzleBack.onclick = () => {
         const subtitle = document.getElementById('puzzle-modal-subtitle');
 
-        // Trường hợp 1: Đang xem danh sách FEN -> Quay lại danh sách File
         if (state.isViewingPuzzleFens) {
             state.isViewingPuzzleFens = false;
             document.getElementById('puzzle-fen-view').style.display = 'none';
             document.getElementById('puzzle-manifest-view').style.display = 'flex';
             
-            // Phục hồi lại tên thư mục cha
             if (state.currentPuzzleFolder.name) {
                 subtitle.innerText = state.currentPuzzleFolder.name;
                 subtitle.style.display = 'block';
             } else {
-                subtitle.style.display = 'none'; // Ẩn nếu ở thư mục gốc
+                subtitle.style.display = 'none'; 
             }
             
             if (state.puzzleHistory.length === 0) btnPuzzleBack.style.display = 'none';
         } 
-        // Trường hợp 2: Đang ở thư mục con -> Quay lại thư mục cha
         else if (state.puzzleHistory.length > 0) {
             const prevFolder = state.puzzleHistory.pop();
-            state.currentPuzzleFolder = prevFolder; // Cập nhật thư mục hiện tại
+            state.currentPuzzleFolder = prevFolder; 
             loadPuzzleManifest(prevFolder.path, prevFolder.name, true);
         }
     };
-    // Sự kiện Nút "Danh sách" trong New Game Modal
+
     const btnNewList = document.getElementById('btn-new-list');
     if (btnNewList) {
         btnNewList.onclick = () => {
@@ -548,14 +524,12 @@ export function initEvents() {
             
             openModal('puzzle-modal');
             
-            // THÊM SETTIMEOUT ĐỂ CHỜ MODAL MỞ XONG MỚI REFRESH UI
             if (state.isViewingPuzzleFens) {
                 setTimeout(() => refreshPuzzleListUI(), 100);
             }
         };
     }
 
-    // --- SỰ KIỆN CỦA MODAL KẾT QUẢ BÀI TẬP ---
     const btnPuzResList = document.getElementById('btn-puz-res-list');
     if (btnPuzResList) {
         btnPuzResList.onclick = () => {
@@ -564,7 +538,6 @@ export function initEvents() {
             
             openModal('puzzle-modal');
             
-            // THÊM SETTIMEOUT ĐỂ CHỜ MODAL MỞ XONG MỚI REFRESH UI
             if (state.isViewingPuzzleFens) {
                 setTimeout(() => refreshPuzzleListUI(), 100);
             }
@@ -598,11 +571,10 @@ export function initEvents() {
                 saveWorkspace('puz_prog_' + state.currentPuzzleSolvedKey, state.currentPuzzleIndex);
                 const nextFen = state.puzzleFens[state.currentPuzzleIndex];
                 switchMode('puzzle', nextFen);
-                showToast(`Đã mở bài số ${state.currentPuzzleIndex + 1}!`);
+                //showToast(`Đã mở bài số ${state.currentPuzzleIndex + 1}!`);
             }
         };
     }
-    // =========================
     
     // ====== Luyện Nhớ Ván ======
     const menuOpening = document.getElementById('menu-memorize');
@@ -686,7 +658,6 @@ export function initEvents() {
                 hideLoading();
                 showToast(`❌ Định dạng .${extension} không được hỗ trợ!`);
             }
-            // Reset input để chọn lại file cũ nếu cần
             e.target.value = '';
         };
     }
@@ -697,7 +668,6 @@ export function initEvents() {
     function syncMemoUI() {
         if (!memoSetupBlind || !memoSetupPath || !memoSetupMethod) return;
 
-        // 1. Reset về trạng thái bình thường (mở khóa)
         memoSetupPath.disabled = false;
         memoSetupPath.style.opacity = '1';
         memoSetupBlind.disabled = false;
@@ -705,9 +675,7 @@ export function initEvents() {
         memoSetupMethod.disabled = false;
         memoSetupMethod.style.opacity = '1';
 
-        // 2. Xét theo ưu tiên từ trên xuống
         if (memoSetupBlind.checked) {
-            // Cờ mù BẬT -> Ép: Luyện toàn bộ + Nhánh ngẫu nhiên
             memoSetupMethod.value = 'full';
             memoSetupMethod.disabled = true;
             memoSetupMethod.style.opacity = '0.5';
@@ -717,7 +685,6 @@ export function initEvents() {
             memoSetupPath.style.opacity = '0.5';
         } 
         else if (memoSetupMethod.value === 'segment') {
-            // Luyện đoạn ngắn BẬT -> Ép: Nhánh chính + Tắt Cờ mù
             memoSetupPath.value = 'main';
             memoSetupPath.disabled = true;
             memoSetupPath.style.opacity = '0.5';
@@ -735,7 +702,7 @@ export function initEvents() {
     const btnMemoSetupCancel = document.getElementById('btn-memo-setup-cancel');
     if (btnMemoSetupCancel) {
         btnMemoSetupCancel.onclick = () => {
-            state.pendingMemorizeData = null; // Hủy data
+            state.pendingMemorizeData = null; 
             closeModal('memorize-setup-modal');
             openModal('memorize-modal');
         };
@@ -746,7 +713,6 @@ export function initEvents() {
         btnMemoSetupConfirm.onclick = () => {
             if (!state.pendingMemorizeData) return;
             
-            // 1. Lưu Setting
             state.memorizeSettings.side = document.getElementById('memo-setup-side').value;
             state.memorizeSettings.method = document.getElementById('memo-setup-method').value;
             state.memorizeSettings.path = document.getElementById('memo-setup-path').value;
@@ -755,7 +721,6 @@ export function initEvents() {
             state.memoMistakesRed = 0;
             state.memoMistakesBlack = 0;
             
-            // 2. Chuyển UI sang AppMode mới
             state.appMode = 'memorize';
             state.appSettings.appMode = 'memorize';
             
@@ -783,7 +748,6 @@ export function initEvents() {
                 `;
             }
 
-            // 3. XỬ LÝ DỮ LIỆU & CẮT ĐOẠN NGẮN
             import('./game.js').then(m => {
                 m.forceStopAIPlayers();
 
@@ -793,12 +757,10 @@ export function initEvents() {
                 else { state.aiPlaysRed = false; state.aiPlaysBlack = false; }
 
                 state.gameList = [{ info: state.pendingMemorizeData.info, node: state.pendingMemorizeData.node }];
-                m.loadGameFromList(0); // Hàm này sẽ kết nối cây Node trên RAM
+                m.loadGameFromList(0); 
                 
-                // === XỬ LÝ CẮT ĐOẠN THEO YÊU CẦU ===
                 let pathNodes = [];
                 let curr = state.rootNode;
-                // Đi theo nhánh chính (index 0) để lấy danh sách các Node
                 while(curr) {
                     pathNodes.push(curr);
                     if(curr.children.length > 0) curr = curr.children[0];
@@ -808,7 +770,6 @@ export function initEvents() {
                 let totalMoves = pathNodes.length - 1; 
 
                 if (state.memorizeSettings.method === 'segment' && totalMoves > 6) {
-                    // Cắt random
                     let maxStart = totalMoves - 6;
                     let startIdx = Math.floor(Math.random() * (maxStart + 1));
                     let maxLen = totalMoves - startIdx;
@@ -818,23 +779,19 @@ export function initEvents() {
                     state.memorizeSettings.startNodeId = pathNodes[startIdx].id;
                     state.memorizeSettings.endNodeId = pathNodes[endIdx].id;
                     
-                    // Nhảy ngay tới đoạn bắt đầu
                     m.instantJumpToNode(pathNodes[startIdx]);
                 } else {
-                    // Luyện toàn bộ
                     state.memorizeSettings.startNodeId = pathNodes[0].id;
                     state.memorizeSettings.endNodeId = pathNodes[pathNodes.length - 1].id;
                     m.instantJumpToNode(pathNodes[0]);
                 }
 
                 m.applyAutoBoardFlip();
-                
-                // Trễ nhẹ để UI Canvas xử lý kịp trước khi báo BOT đánh
                 setTimeout(() => m.triggerMemorizeBot(), 300);
             });
 
             closeModal('memorize-setup-modal');
-            showToast("✅ Bắt đầu Luyện Nhớ Ván!");
+            //showToast("✅ Bắt đầu Luyện Nhớ Ván!");
         };
     }
     const btnMemoRetry = document.getElementById('btn-memo-retry');
@@ -847,7 +804,6 @@ export function initEvents() {
             import('./game.js').then(m => {
                 m.forceStopAIPlayers();
                 
-                // Hàm tìm Node xuất phát trong Cây Node
                 function findNodeById(node, id) {
                     if (node.id === id) return node;
                     for(let c of node.children) {
@@ -880,10 +836,9 @@ export function initEvents() {
 
             state.memorizeOpenedFromMenu = false;
             openModal('memorize-modal');
-            renderMemorizeList(); // Mở lại danh sách thư viện
+            renderMemorizeList(); 
         };
     }
-    //=============================
 
      // ====== Thư Viện ======
     const menuLibrary = document.getElementById('menu-library');
@@ -904,8 +859,7 @@ export function initEvents() {
 
     const btnDelLibConfirm = document.getElementById('btn-del-lib-confirm');
     if (btnDelLibConfirm) btnDelLibConfirm.onclick = () => confirmDeleteLibraryItem();
-    //==============================
-    
+
     // ====== Setting ======
     const menuSettings = document.getElementById('menu-settings');
     if(menuSettings) menuSettings.onclick = () => { 
@@ -945,7 +899,6 @@ export function initEvents() {
     }
     if (maxThreads > 16) maxThreads = 16;
     
-    // --- LẤY TIER THIẾT BỊ ĐỂ SETUP GIAO DIỆN ---
     const tier = getDeviceTier();
     let maxHash = 512, maxDepth = 100;
     if (tier === 'MOBILE_HIGH') { maxHash = 512; maxDepth = 60; }
@@ -962,21 +915,16 @@ export function initEvents() {
         if (inputThreads) inputThreads.value = maxThreads;
     }
 
-    // Cập nhật thuộc tính DOM trước khi setup
     document.getElementById('input-hash')?.setAttribute('max', maxHash);
     document.getElementById('input-depth')?.setAttribute('max', maxDepth);
 
     setupStepper('skill', 'input-skill', 'btn-skill-minus', 'btn-skill-plus', 0, 20, 1, false, 'ai');
     setupStepper('threads', 'input-threads', 'btn-threads-minus', 'btn-threads-plus', 1, maxThreads, 1, false, 'ai');
-    
-    // Chèn maxHash và maxDepth động vào Giao diện
     setupStepper('hash', 'input-hash', 'btn-hash-minus', 'btn-hash-plus', 32, maxHash, 32, true, 'ai');
     setupStepper('multiPV', 'input-multipv', 'btn-multipv-minus', 'btn-multipv-plus', 1, 5, 1, false, 'ai');
     setupStepper('moveTime', 'input-time', 'btn-time-minus', 'btn-time-plus', 0.5, 300, 0.5, false, 'ai');
     setupStepper('depth', 'input-depth', 'btn-depth-minus', 'btn-depth-plus', 1, maxDepth, 1, false, 'ai');
-    
     setupStepper('cloudBookLimit', 'input-cloudlimit', 'btn-cloudlimit-minus', 'btn-cloudlimit-plus', 1, 50, 1, false, 'app');
-    
     setupStepper('level', 'input-botlevel', 'btn-botlevel-minus', 'btn-botlevel-plus', 1, 10, 1, false, 'bot');
     setupStepper('level', 'input-setup-level', 'btn-setup-level-minus', 'btn-setup-level-plus', 1, 10, 1, false, 'bot');
     
@@ -1037,15 +985,13 @@ export function initEvents() {
         const btnImportFile = document.getElementById('btn-import-file');
         const importText = document.getElementById('import-text');
         
-        // Cấu hình giao diện Panel Import tùy theo Mode
         if (state.appMode === 'vsbot') {
-            if (btnImportFile) btnImportFile.style.display = 'none'; // Ẩn nút tải file
+            if (btnImportFile) btnImportFile.style.display = 'none'; 
             if (importText) importText.placeholder = "Chỉ dán mã FEN hình cờ tĩnh vào đây...";
         } else {
-            if (btnImportFile) btnImportFile.style.display = 'flex'; // Hiện nút tải file
+            if (btnImportFile) btnImportFile.style.display = 'flex'; 
             if (importText) importText.placeholder = "Dán mã FEN, PGN hoặc UBB vào đây...";
         }
-        
         openModal('import-modal'); 
     };
     
@@ -1107,7 +1053,6 @@ export function initEvents() {
             } else { if(btnBlack) btnBlack.classList.remove('tool-active'); }
         }
         
-        // ĐÃ SỬA: CHỈ gọi phân tích mới khi có ít nhất 1 chế độ đang được bật
         if (state.aiPlaysRed || state.aiPlaysBlack || state.isAnalyzing) {
             triggerEngineEvaluation();
         }
@@ -1131,38 +1076,11 @@ export function initEvents() {
                     state.hasAutoSwitchedToAnalyze = true;
                 }
                 
-                // BẬT THÌ CHẠY ĐÁNH GIÁ (Clear mũi tên cũ và tìm mũi tên mới)
                 triggerEngineEvaluation(); 
             } else {
-                // TẮT THÌ CHỈ CẦN THÁO NÚT ACTIVE (Không clear mũi tên)
                 btnAnalyze.classList.remove('tool-active');
             }
             
-            resetAIUI();
-        };
-    }
-
-    if(btnRed) btnRed.onclick = () => toggleAI('red');
-    if(btnBlack) btnBlack.onclick = () => toggleAI('black');
-
-    if(btnAnalyze) {
-        btnAnalyze.onclick = () => {
-            state.isAnalyzing = !state.isAnalyzing;
-            if (state.isAnalyzing) {
-                btnAnalyze.classList.add('tool-active');
-                state.aiPlaysRed = false; if(btnRed) btnRed.classList.remove('tool-active');
-                state.aiPlaysBlack = false; if(btnBlack) btnBlack.classList.remove('tool-active');
-                
-                if (!state.hasAutoSwitchedToAnalyze) {
-                    const pikaTab = document.querySelector('.ai-tab-btn[data-tab="pikafish"]');
-                    if (pikaTab) pikaTab.click();
-                    state.hasAutoSwitchedToAnalyze = true;
-                }
-            } else {
-                btnAnalyze.classList.remove('tool-active');
-            }
-            
-            triggerEngineEvaluation();
             resetAIUI();
         };
     }
@@ -1177,7 +1095,6 @@ export function initEvents() {
             if (state.engineModule && vschess.hasLegalMove(state.currentSituation)) {
                 btnGoInstant.classList.add('tool-active');
                 
-                // Gọi API mới để Xử lý Terminate tự động nếu là Single Thread
                 import('./engine.js').then(module => {
                     module.triggerGoInstant();
                 });
@@ -1234,7 +1151,6 @@ export function initEvents() {
                 document.getElementById('setup-bot-style').value = state.vsBotSettings.botStyle || 'standard';
                 openModal('vsbot-setup-modal');
             } else if (state.appMode === 'puzzle') {
-                // GIẢI BÀI TẬP: Hỏi chơi lại từ đầu
                 const modal = document.getElementById('new-game-modal');
                 if(!modal) return;
                 modal.querySelector('.modal-header').innerText = "Chơi Lại Bài Tập";
@@ -1264,12 +1180,10 @@ export function initEvents() {
         if (state.appMode === 'puzzle') {
             import('./game.js').then(m => {
                 m.forceStopAIPlayers();
-                // Xóa toàn bộ nhánh con (lịch sử) của Root
                 state.rootNode.children = [];
                 state.rootNode.mainLineIndex = 0;
-                m.instantJumpToNode(state.rootNode); // Nhảy về node gốc
+                m.instantJumpToNode(state.rootNode); 
                 
-                // Khôi phục lại quyền AI
                 const isRedFirst = state.rootNode.fen.split(" ")[1] === "w";
                 state.aiPlaysRed = !isRedFirst;
                 state.aiPlaysBlack = isRedFirst;
@@ -1288,39 +1202,33 @@ export function initEvents() {
         btnImportConfirm.onclick = () => {
             const textData = document.getElementById('import-text').value.trim();
             if (textData) {
-                // =============== XỬ LÝ RIÊNG CHO CHẾ ĐỘ ĐẤU VS BOT ===============
                 if (state.appMode === 'vsbot') {
-                    // Chặn tuyệt đối biên bản PGN, UBB, hoặc FEN có kèm move
                     if (textData.toLowerCase().includes("moves") || textData.includes("[") || textData.includes("DhtmlXQ")) {
                         showToast("❌ Chế độ Đấu Máy chỉ chấp nhận mã FEN hình cờ tĩnh, không nhận biên bản nước đi!");
                         return;
                     }
                     
                     let fenInput = textData;
-                    // Bổ sung chuẩn cấu trúc FEN nếu người dùng chỉ dán mỗi đoạn tọa độ
                     if (!fenInput.includes(" w ") && !fenInput.includes(" b ")) {
                         fenInput += " w - - 0 1";
                     }
 
-                    // Kiểm tra tính hợp lệ của FEN
                     const errorList = vschess.checkFen(fenInput);
                     if (errorList && errorList.length > 0) {
                         showToast(`❌ Mã FEN không hợp lệ!`);
                         return;
                     }
 
-                    // FEN OK -> Đóng Panel Tải lên và Mở Panel Thiết Lập Bot
                     closeModal('import-modal');
                     document.getElementById('import-text').value = '';
                     
-                    state.vsBotSetupOrigin = 'import_mode'; // Cờ theo dõi nguồn gốc mở setup
+                    state.vsBotSetupOrigin = 'import_mode'; 
                     document.getElementById('setup-bot-fen').value = fenInput;
                     document.getElementById('setup-bot-style').value = state.vsBotSettings.botStyle || 'standard';
                     openModal('vsbot-setup-modal');
                     return;
                 }
 
-                // =============== XỬ LÝ CHO CHẾ ĐỘ PHÂN TÍCH BÌNH THƯỜNG ===============
                 showLoading("Đang xử lý dữ liệu...");
                 setTimeout(() => {
                     try {
@@ -1328,12 +1236,11 @@ export function initEvents() {
                         const infoData = vschess.dataToInfo(textData);
 
                         if (nodeData && nodeData.fen) {
-                            // SỬA Ở ĐÂY: Reset gameList và nạp ván mới dạng Object thô
                             state.gameList = [{ info: infoData, node: nodeData }];
-                            loadGameFromList(0); // Nạp ván đầu tiên lên RAM
+                            loadGameFromList(0); 
                             
                             closeModal('import-modal');
-                            saveGameState(); // Auto-save xuống IndexedDB
+                            saveGameState(); 
                             showToast("✅ Tải dữ liệu thành công!");
                         } else { 
                             showToast("❌ Định dạng không hợp lệ hoặc không được hỗ trợ!"); 
@@ -1502,19 +1409,12 @@ export function initEvents() {
                 
                 if (state.pendingDownloadType === 'library') {
                     showLoading("Đang lưu vào thư viện...");
-                    
-                    // 1. Chuyển đổi Ván cờ thành định dạng chuỗi Text (DhtmlXQ UBB)
                     const gameDataText = vschess.nodeToData_DhtmlXQ(vNode, state.currentGameInfo, false);
-                    
-                    const idKey = 'lib_' + Date.now(); // 2. Tạo Key ID độc nhất
-                    
-                    await saveWorkspace(idKey, gameDataText); // 3. Lưu nội dung ván cờ vào IndexedDB với Key ID vừa tạo
-                    
-                    // 4. Lấy danh sách thư viện hiện tại, thêm File mới vào, và lưu lại danh sách
+                    const idKey = 'lib_' + Date.now();
+                    await saveWorkspace(idKey, gameDataText); 
                     let libraryList = await getWorkspace('library_workspace') || [];
                     libraryList.push({ id_key: idKey, file_name: rawFileName });
                     await saveWorkspace('library_workspace', libraryList);
-                    
                     hideLoading();
                     showToast(`✅ Đã lưu "${rawFileName}" vào Thư viện thành công!`);
                 }
@@ -1566,14 +1466,107 @@ export function initEvents() {
     if(document.getElementById(initialModeId)) {
         document.getElementById(initialModeId).classList.add('menu-item-active');
     }
-}
+
+    // ==========================================
+    // XỬ LÝ LOCAL BOOK & CLOUD BOOK
+    // ==========================================
+    const bookTypeSelect = document.getElementById('book-type-select');
+    const rowLocalBook = document.getElementById('row-local-book');
+    const btnUploadLocal = document.getElementById('btn-upload-local-book');
+    const inputLocalFile = document.getElementById('input-local-book-file');
+    const btnDeleteLocal = document.getElementById('btn-delete-local-book');
+    const localBookTitle = document.getElementById('local-book-title');
+    const localBookFilename = document.getElementById('local-book-filename');
+
+    syncBookTabUI();
+
+    if (bookTypeSelect) {
+        if (bookTypeSelect.value === 'local') {
+            if (rowLocalBook) rowLocalBook.style.display = 'flex';
+            loadLocalBookFromDB();
+        }
+
+        // Sự kiện đổi loại sách (Cloud/Local)
+        bookTypeSelect.onchange = (e) => {
+            const val = e.target.value;
+            state.appSettings.bookType = val;
+            storage.saveSystem(state.appSettings);
+            
+            // Cập nhật lại UI Tab
+            syncBookTabUI();
+            
+            if (val === 'local') {
+                if (rowLocalBook) rowLocalBook.style.display = 'flex';
+                // Hàm này đã được bảo vệ, gọi nhiều lần không sao. Nó sẽ tự trigger quét lại.
+                loadLocalBookFromDB(); 
+            } else {
+                if (rowLocalBook) rowLocalBook.style.display = 'none';
+                // Nếu đổi về Cloud, ép hệ thống quét Cloud ngay lập tức
+                import('./engine.js').then(m => m.fetchCloudBook(state.currentNode.fen));
+            }
+        };
+    }
+
+    // Sự kiện Click nút tải File
+    if (btnUploadLocal && inputLocalFile) {
+        btnUploadLocal.onclick = () => inputLocalFile.click();
+
+        inputLocalFile.onchange = (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            
+            // Xử lý UI tạm thời để user biết file đang được đọc
+            if (localBookTitle) localBookTitle.innerText = "Đang xử lý...";
+            if (localBookFilename) {
+                localBookFilename.innerText = file.name;
+                localBookFilename.style.color = "#008a3e";
+            }
+            
+            // Gọi hàm xử lý logic IndexedDB bên localbook.js
+            uploadLocalBook(file);
+            
+            // Reset input để có thể chọn lại đúng file đó lần sau nếu cần
+            e.target.value = '';
+        };
+    }
+
+    // Sự kiện Click nút Xóa File
+    if (btnDeleteLocal) {
+        btnDeleteLocal.onclick = () => {
+            // Lấy tên file đang hiển thị
+            const fileName = document.getElementById('local-book-filename')?.innerText || "File Book";
+            // Gán tên file vào Modal
+            const nameEl = document.getElementById('delete-local-book-name');
+            if (nameEl) nameEl.innerText = fileName;
+            
+            // Mở Modal hỏi xác nhận
+            openModal('delete-local-book-modal');
+        };
+    }
+
+    // Nút Hủy trong Modal Xóa Local Book
+    const btnDelLocalCancel = document.getElementById('btn-del-local-book-cancel');
+    if (btnDelLocalCancel) {
+        btnDelLocalCancel.onclick = () => {
+            closeModal('delete-local-book-modal'); // Chỉ đóng bảng
+        };
+    }
+
+    // Nút Xác nhận trong Modal Xóa Local Book
+    const btnDelLocalConfirm = document.getElementById('btn-del-local-book-confirm');
+    if (btnDelLocalConfirm) {
+        btnDelLocalConfirm.onclick = () => {
+            closeModal('delete-local-book-modal'); // Đóng bảng
+            if (inputLocalFile) inputLocalFile.value = '';
+            deleteLocalBook(); // Gọi hàm xóa thực sự
+        };
+    }
 
     // === LOGIC XỬ LÝ MANIFEST VÀ LOCAL DB ===
     async function loadPuzzleManifest(folderPath, folderName = '', isBack = false) {
         showLoading("Đang tải danh sách...");
         state.isViewingPuzzleFens = false;
         
-        // Cập nhật UI về View 1
         document.getElementById('puzzle-fen-view').style.display = 'none';
         const container = document.getElementById('puzzle-manifest-view');
         container.style.display = 'flex';
@@ -1592,12 +1585,8 @@ export function initEvents() {
 
         container.innerHTML = ''; 
 
-        // ==========================================
-        // LUỒNG 1: NẾU ĐANG VÀO "BÀI TẬP CỦA TÔI" (Dùng IndexedDB)
-        // ==========================================
         if (folderPath === 'my_puzzles') {
             try {
-                // 1. Render nút Tải lên JSON
                 const btnUpload = document.createElement('button');
                 btnUpload.className = 'import-btn btn-blue';
                 btnUpload.style.cssText = 'width: 100%; margin-bottom: 5px; flex-shrink: 0;';
@@ -1605,7 +1594,6 @@ export function initEvents() {
                 btnUpload.onclick = () => document.getElementById('puzzle-file-upload').click();
                 container.appendChild(btnUpload);
 
-                // 2. Fetch danh sách từ IndexedDB
                 let myPuzData = await getWorkspace('my_puzzle');
                 if (!myPuzData || !myPuzData.files || myPuzData.files.length === 0) {
                     const emptyDiv = document.createElement('div');
@@ -1613,10 +1601,9 @@ export function initEvents() {
                     emptyDiv.innerText = 'Chưa có bài tập nào. Hãy tải lên file JSON!';
                     container.appendChild(emptyDiv);
                 } else {
-                    // 3. Render danh sách File kèm nút Xóa
                     myPuzData.files.forEach(file => {
                         const item = document.createElement('div');
-                        item.className = 'lib-item'; // Dùng chung class với Thư viện
+                        item.className = 'lib-item'; 
                         item.style.cssText = 'border-radius: 8px; border: 1px solid #eee; margin-bottom: 2px;';
                         item.innerHTML = `
                             <span class="puzzle-icon" style="margin-right:8px;">📄</span>
@@ -1626,13 +1613,11 @@ export function initEvents() {
                             </button>
                         `;
 
-                        // Click vào vùng text -> Đọc file từ DB
                         item.onclick = (e) => {
                             if(e.target.closest('.lib-btn-del')) return; 
-                            loadPuzzleFileData(file.file_name, file.file_key, true); // true = Đọc từ Local DB
+                            loadPuzzleFileData(file.file_name, file.file_key, true); 
                         };
 
-                        // Click vào nút Xóa
                         item.querySelector('.lib-btn-del').onclick = (e) => {
                             e.stopPropagation();
                             pendingDeletePuzKey = file.file_key;
@@ -1645,12 +1630,9 @@ export function initEvents() {
                 }
             } catch (err) { showToast("❌ Lỗi khi đọc dữ liệu Bài Tập Của Tôi!"); }
             hideLoading();
-            return; // KẾT THÚC LUỒNG 1 TẠI ĐÂY
+            return; 
         }
 
-        // ==========================================
-        // LUỒNG 2: ĐỌC TỪ MANIFEST JSON TRÊN MÁY CHỦ
-        // ==========================================
         try {
             let isDevUnlocked = false;
             if (folderPath === 'data') {
@@ -1658,21 +1640,19 @@ export function initEvents() {
                 if (devKey) isDevUnlocked = true;
             }
 
-            const response = await fetch(`${folderPath}/manifest.json?v=${new Date().getTime()}`);
+            const response = await fetch(`${folderPath}/manifest.json`);
             if (!response.ok) throw new Error("Không tìm thấy file manifest");
             
             const data = await response.json();
 
-            // Chèn "Bài Tập Của Tôi" nếu đã Unlock
             if (folderPath === 'data' && isDevUnlocked) {
                 if (!data.folders) data.folders = [];
                 data.folders.unshift({
                     folder_name: "Bài Tập Của Tôi",
-                    folder_path: "my_puzzles" // Trỏ tới luồng 1
+                    folder_path: "my_puzzles" 
                 });
             }
 
-            // Render Thư mục
             if (data.folders && data.folders.length > 0) {
                 data.folders.forEach(folder => {
                     const btn = document.createElement('button');
@@ -1687,20 +1667,18 @@ export function initEvents() {
                 });
             }
 
-            // Render File
             if (data.files && data.files.length > 0) {
                 data.files.forEach(file => {
                     const btn = document.createElement('button');
                     btn.className = 'puzzle-item';
                     btn.innerHTML = `<span class="puzzle-icon">📄</span><span class="puzzle-name">${file.file_name}</span>`;
                     btn.onclick = () => {
-                        loadPuzzleFileData(file.file_name, file.file_path, false); // false = Remote
+                        loadPuzzleFileData(file.file_name, file.file_path, false); 
                     };
                     container.appendChild(btn);
                 });
             }
 
-            // Vùng bấm tàng hình để Unlock
             if (folderPath === 'data' && !isDevUnlocked) {
                 const hiddenDevArea = document.createElement('div');
                 hiddenDevArea.style.flex = "1"; 
@@ -1720,7 +1698,7 @@ export function initEvents() {
                                 if (!res) return saveWorkspace('my_puzzle', { files: [] });
                             })
                         ]).then(() => {
-                            showToast("🔓 Đã mở khóa Bài Tập Của Tôi!");
+                            //showToast("🔓 Đã mở khóa Bài Tập Của Tôi!");
                             loadPuzzleManifest('data', ''); 
                         });
                         clickCount = 0;
@@ -1741,7 +1719,6 @@ export function initEvents() {
     }
 
 
-    // === LOGIC UPLOAD VÀ XÓA FILE (Dành cho Bài Tập Của Tôi) ===
     function handlePuzzleUpload(file) {
         if (!file) return;
         const reader = new FileReader();
@@ -1751,11 +1728,9 @@ export function initEvents() {
             try {
                 const data = JSON.parse(e.target.result);
                 
-                // Kiểm tra sự tồn tại của các key và cấu trúc chuẩn xác
                 const keys = Object.keys(data);
                 const requiredKeys = ['max_moves', 'key', 'fens'];
                 
-                // Trả về lỗi nếu thừa, thiếu, hoặc sai định dạng array
                 const isStrictlyValid = keys.length === 3 && 
                                         requiredKeys.every(k => keys.includes(k)) && 
                                         Array.isArray(data.fens);
@@ -1764,14 +1739,11 @@ export function initEvents() {
                     throw new Error("Cấu trúc JSON không hợp lệ. Chỉ chấp nhận các key: max_moves, key, fens.");
                 }
 
-                // 1. Tạo Key mới lưu vào DB
                 const timeSuffix = getFormattedDate();
                 const newFileKey = 'puz_' + Math.floor(Math.random()*1000) + '_' + timeSuffix;
                 
-                // 2. Lưu file thô vào DB
                 await saveWorkspace(newFileKey, data);
                 
-                // 3. Cập nhật danh sách my_puzzle
                 let myPuz = await getWorkspace('my_puzzle');
                 if (!myPuz) myPuz = { files: [] };
                 
@@ -1779,7 +1751,6 @@ export function initEvents() {
                 myPuz.files.push({ file_name: cleanFileName, file_key: newFileKey });
                 await saveWorkspace('my_puzzle', myPuz);
                 
-                // 4. Reload lại UI
                 loadPuzzleManifest('my_puzzles', 'Bài Tập Của Tôi', false);
                 showToast(`✅ Đã tải lên file: ${cleanFileName}`);
 
@@ -1795,7 +1766,7 @@ export function initEvents() {
         closeModal('delete-puz-modal');
         showLoading("Đang xóa...");
         try {
-            await deleteWorkspace(pendingDeletePuzKey); // Xóa nội dung
+            await deleteWorkspace(pendingDeletePuzKey); 
             
             let myPuz = await getWorkspace('my_puzzle');
             
@@ -1805,7 +1776,7 @@ export function initEvents() {
                 await saveWorkspace('my_puzzle', myPuz);
             }
             
-            loadPuzzleManifest('my_puzzles', 'Bài Tập Của Tôi', false); // Render lại
+            loadPuzzleManifest('my_puzzles', 'Bài Tập Của Tôi', false); 
             showToast("✅ Đã xóa bài tập!");
         } catch (err) {
             showToast("❌ Lỗi khi xóa!");
@@ -1814,24 +1785,20 @@ export function initEvents() {
     }
 
 
-    // === LOGIC XỬ LÝ DATA BÊN TRONG FILE (FENS) ===
     let puzzleDomPool = [];
     const PUZ_ITEM_HEIGHT = 48; 
     const PUZ_VISIBLE_ITEMS = 25;
 
-    // SỬA: Thêm tham số isLocal
     async function loadPuzzleFileData(fileName, filePath, isLocal = false) {
         showLoading("Đang tải dữ liệu bài tập...");
         try {
             state.currentPuzzleName = fileName;
             let data;
             if (isLocal) {
-                // Đọc từ IndexedDB (với tham số filePath chính là file_key)
                 data = await getWorkspace(filePath);
                 if (!data) throw new Error("Không tìm thấy dữ liệu trong máy");
             } else {
-                // Đọc từ Máy chủ (fetch)
-                const response = await fetch(`${filePath}?v=${new Date().getTime()}`);
+                const response = await fetch(`${filePath}`);
                 if (!response.ok) throw new Error("Lỗi tải file JSON");
                 data = await response.json();
             }
@@ -1840,24 +1807,19 @@ export function initEvents() {
                 state.puzzleFens = data.fens;
                 state.currentPuzzleMaxMoves = data.max_moves || 1000;
 
-                // TẠO HOẶC LẤY KEY RANDOM TỪ DATABASE
                 state.currentPuzzleKey = data.key || fileName; 
                 
-                // Tìm xem Key này đã được gắn với random suffix nào chưa
                 let mappedKey = await getWorkspace('puz_map_' + state.currentPuzzleKey);
                 if (!mappedKey) {
-                    // Nếu chưa có, khởi tạo Key mới (vd: xpstxst_abcde)
                     mappedKey = state.currentPuzzleKey + makeRandomString(5);
                     await saveWorkspace('puz_map_' + state.currentPuzzleKey, mappedKey);
-                    await saveWorkspace('puz_solved_' + mappedKey, []); // Khởi tạo mảng rỗng
+                    await saveWorkspace('puz_solved_' + mappedKey, []); 
                 }
                 state.currentPuzzleSolvedKey = mappedKey;
 
-                // Lấy mảng các bài đã giải
                 let solvedArray = await getWorkspace('puz_solved_' + mappedKey);
                 state.currentPuzzleSolved = solvedArray || [];
 
-                // Lấy vị trí bài đang chơi dở
                 let savedIndex = await getWorkspace('puz_prog_' + mappedKey);
                 state.currentPuzzleIndex = (savedIndex !== null && savedIndex < data.fens.length) ? savedIndex : 0;
                 
@@ -1890,10 +1852,9 @@ export function initEvents() {
             for (let i = 0; i < PUZ_VISIBLE_ITEMS; i++) {
                 const item = document.createElement('div');
                 item.className = 'lib-item'; 
-                // Thiết kế Layout Flexbox: 3 CỘT (Cột 1 trống để đẩy Text ra giữa, Cột 2 Text, Cột 3 Icon)
                 item.innerHTML = `
                     <div style="display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 0 15px;">
-                        <span style="width: 24px;"></span> <!-- Spacer cân bằng trái -->
+                        <span style="width: 24px;"></span> 
                         <span class="lib-title" style="text-align: center; padding: 0; flex: 1;"></span>
                         <span class="puz-status-icon" style="display: flex; align-items: center; justify-content: flex-end; width: 24px;">
                         </span>
@@ -1902,20 +1863,22 @@ export function initEvents() {
                 
                 item.onclick = () => {
                     const fenIndex = parseInt(item.dataset.index);
+                    const selectedFen = state.puzzleFens[fenIndex];
                     
-                    if (fenIndex === state.currentPuzzleIndex && state.appMode === 'puzzle') {
+                    // FIX LỖI: So sánh trực tiếp mã FEN thay vì so sánh Index
+                    // Nếu mã FEN bài đang chọn trùng khớp y hệt mã FEN đang hiển thị trên bàn cờ thì mới chặn
+                    if (state.appMode === 'puzzle' && state.rootNode && state.rootNode.fen === selectedFen) {
                         closeModal('puzzle-modal');
-                        return; // Chỉ đóng bảng, không làm gì thêm!
+                        return; 
                     }
 
                     state.currentPuzzleIndex = fenIndex;
-                    const selectedFen = state.puzzleFens[fenIndex];
 
                     saveWorkspace('puz_prog_' + state.currentPuzzleSolvedKey, fenIndex);
                     
                     closeModal('puzzle-modal');
                     switchMode('puzzle', selectedFen);
-                    showToast(`Đã mở bài tập số ${fenIndex + 1}!`);
+                    //showToast(`Đã mở bài tập số ${fenIndex + 1}!`);
                 };
 
                 puzzleDomPool.push(item);
@@ -1928,7 +1891,7 @@ export function initEvents() {
         
         const viewportHeight = viewport.clientHeight || 300; 
         let targetScroll = (state.currentPuzzleIndex * PUZ_ITEM_HEIGHT) - (viewportHeight / 2) + (PUZ_ITEM_HEIGHT / 2);
-        if (targetScroll < 0) targetScroll = 0; // Tránh cuộn lố lên trên
+        if (targetScroll < 0) targetScroll = 0; 
         viewport.scrollTop = targetScroll;
 
         updatePuzzleVirtualList();
@@ -1957,48 +1920,40 @@ export function initEvents() {
                 
                 titleSpan.innerText = `Bài số ${dataIndex + 1}`;
 
-                // --- KIỂM TRA ĐẶC BIỆT NẾU LÀ FILE CHALLENGE ---
                 const isChallenge = state.currentPuzzleName === "Thử Thách" || state.currentPuzzleKey.includes("challenge");
                 
-                // Mảng chứa các index đã giải
                 let isSolved = state.currentPuzzleSolved.includes(dataIndex);
                 let isActive = (dataIndex === state.currentPuzzleIndex);
                 
-                // Nếu là Challenge: Nó lưu max_index thay vì mảng. Ta quy ra mảng ngầm định.
                 let maxUnlocked = 0;
                 if (isChallenge) {
                     const maxSolvedIndex = state.currentPuzzleSolved.length > 0 ? state.currentPuzzleSolved[0] : -1;
-                    maxUnlocked = maxSolvedIndex + 1; // Bài đang giải (Bài tiếp theo)
+                    maxUnlocked = maxSolvedIndex + 1; 
 
                     isSolved = (dataIndex <= maxSolvedIndex);
                     
-                    // Nếu là bài CHƯA GIẢI
                     if (!isSolved) {
                         if (dataIndex === maxUnlocked) {
-                            // Đang giải: Chữ xanh, không icon
                             statusIcon.innerHTML = '';
                             titleSpan.style.color = isActive ? '#008a3e' : '#1a73e8';
                             dom.style.opacity = '1';
-                            dom.style.pointerEvents = 'auto'; // Cho phép bấm
+                            dom.style.pointerEvents = 'auto'; 
                         } else {
-                            // Chưa tới lượt (Khóa): Chữ xám, Icon ổ khóa
                             statusIcon.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#262626" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="16" r="1"/><rect x="3" y="10" width="18" height="12" rx="2"/><path d="M7 10V7a5 5 0 0 1 10 0v3"/></svg>`;
                             titleSpan.style.color = '#262626';
                             dom.style.opacity = '0.6';
-                            dom.style.pointerEvents = 'none'; // CẤM BẤM
+                            dom.style.pointerEvents = 'none'; 
                         }
                     } else {
-                        // Đã giải: Chữ xanh lá, Icon tích
                         statusIcon.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#14a800" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.801 10A10 10 0 1 1 17 3.335"/><path d="m9 11 3 3L22 4"/></svg>`;
                         titleSpan.style.color = '#14a800';
                         dom.style.opacity = '1';
-                        dom.style.pointerEvents = 'auto'; // Cho phép bấm chơi lại
+                        dom.style.pointerEvents = 'auto'; 
                     }
                 } 
-                // --- XỬ LÝ BÀI TẬP BÌNH THƯỜNG ---
                 else {
                     dom.style.opacity = '1';
-                    dom.style.pointerEvents = 'auto'; // Cho phép bấm
+                    dom.style.pointerEvents = 'auto'; 
 
                     if (isSolved) {
                         statusIcon.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#14a800" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.801 10A10 10 0 1 1 17 3.335"/><path d="m9 11 3 3L22 4"/></svg>`;
@@ -2009,7 +1964,6 @@ export function initEvents() {
                     }
                 }
 
-                // XỬ LÝ FONT WEIGHT & BORDER CỦA DÒNG ĐANG CHỌN (Chung cho 2 chế độ)
                 titleSpan.style.fontWeight = isActive ? '900' : 'bold';
 
                 if (isActive) {
@@ -2028,23 +1982,19 @@ export function initEvents() {
         const viewport = document.getElementById('puzzle-fen-viewport');
         if (!viewport || puzzleDomPool.length === 0) return;
 
-        // 1. Tính toán lại vị trí cuộn ra giữa cho bài tập hiện tại
         const viewportHeight = viewport.clientHeight || 300; 
         let targetScroll = (state.currentPuzzleIndex * PUZ_ITEM_HEIGHT) - (viewportHeight / 2) + (PUZ_ITEM_HEIGHT / 2);
         if (targetScroll < 0) targetScroll = 0; 
         
-        // Gán lại thanh cuộn
         viewport.scrollTop = targetScroll;
 
-        // 2. Ép hệ thống vẽ lại các nút bấm (Màu xanh / Đen)
         updatePuzzleVirtualList();
     }
-    // ====== SỰ KIỆN UPLOAD & XÓA BÀI TẬP CỦA TÔI ======
     const puzzleFileUpload = document.getElementById('puzzle-file-upload');
     if (puzzleFileUpload) {
         puzzleFileUpload.onchange = (e) => {
             handlePuzzleUpload(e.target.files[0]);
-            e.target.value = ''; // Reset input
+            e.target.value = ''; 
         };
     }
 
@@ -2053,3 +2003,4 @@ export function initEvents() {
 
     const btnDelPuzConfirm = document.getElementById('btn-del-puz-confirm');
     if (btnDelPuzConfirm) btnDelPuzConfirm.onclick = () => confirmDeletePuzzleFile();
+}

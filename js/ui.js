@@ -458,7 +458,7 @@ async function loadGameFromLibrary(idKey) {
                 ioModule.saveGameState(); 
                 
                 closeModal('library-modal');
-                showToast("✅ Đã mở ván cờ trong Chế Độ Phân Tích!");
+                //showToast("✅ Đã mở ván cờ trong Chế Độ Phân Tích!");
             } else {
                 showToast("❌ File lỗi hoặc không hợp lệ!");
             }
@@ -584,6 +584,20 @@ function updateMemoVirtualList() {
             titleEl.title = data.file_name;
         } else {
             dom.style.display = 'none';
+        }
+    }
+}
+
+export function syncBookTabUI() {
+    const typeSelect = document.getElementById('book-type-select');
+    if (typeSelect) {
+        // Lấy setting từ state (đã được nạp từ localStorage ở state.js)
+        const currentType = state.appSettings.bookType || 'cloud';
+        typeSelect.value = currentType;
+
+        const cloudTab = document.querySelector('.ai-tab-btn[data-tab="cloudbook"]');
+        if (cloudTab) {
+            cloudTab.innerText = currentType === 'local' ? "Local Book" : "Cloud Book";
         }
     }
 }

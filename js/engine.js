@@ -4,6 +4,7 @@ import { customTranslator, executeMove } from './game.js';
 import { showToast, showAILoading, hideAILoading } from './ui.js';
 import { getStrictLegalMoves } from './rules.js';
 import { state, storage } from './state.js'; // Thêm storage vào đây
+import { queryLocalBookWorker } from './localbook.js';
 
 let pendingAction = null; 
 let stopTimeoutId = null; 
@@ -64,7 +65,7 @@ export let botProfiles = {
 // =====================================================================
 function checkThreads() {
     try {
-        console.log("Check Threads: typeof SharedArrayBuffer = ", typeof SharedArrayBuffer);
+        //console.log("Check Threads: typeof SharedArrayBuffer = ", typeof SharedArrayBuffer);
         return typeof SharedArrayBuffer !== 'undefined';
     } catch (e) {
         console.error("Check Threads Error:", e);
@@ -76,7 +77,7 @@ async function checkSIMD() {
     try {
         const simdWasm = new Uint8Array([0,97,115,109,1,0,0,0,1,5,1,96,0,1,123,3,2,1,0,10,10,1,8,0,65,0,253,15,253,98,11]);
         let res = await WebAssembly.validate(simdWasm);
-        console.log("Check SIMD result:", res);
+        //console.log("Check SIMD result:", res);
         return res;
     } catch (e) { 
         console.error("Check SIMD Error:", e);
@@ -88,7 +89,7 @@ async function checkRelaxedSIMD() {
     try {
         const relaxedSimdWasm = new Uint8Array([0,97,115,109,1,0,0,0,1,5,1,96,0,1,123,3,2,1,0,10,15,1,13,0,65,1,253,15,65,2,253,15,253,128,2,11]);
         let res = await WebAssembly.validate(relaxedSimdWasm);
-        console.log("Check Relaxed SIMD result:", res);
+        //console.log("Check Relaxed SIMD result:", res);
         return res;
     } catch (e) { 
         console.error("Check Relaxed SIMD Error:", e);
@@ -106,7 +107,7 @@ async function getBestEngineType() {
         relaxedSimd = await checkRelaxedSIMD();
     }
 
-    console.log(`Hardware detection: Tier=${tier}, Threads=${threads}, SIMD=${simd}, RelaxedSIMD=${relaxedSimd}`);
+    //console.log(`Hardware detection: Tier=${tier}, Threads=${threads}, SIMD=${simd}, RelaxedSIMD=${relaxedSimd}`);
 
     // YÊU CẦU 1: Mobile < 6GB bắt buộc chạy single_simd hoặc single
     if (tier === 'MOBILE_LOW') {
@@ -210,7 +211,7 @@ function applyEngineHardwareLimits(type) {
 export async function initPikafish(forceType = null) {
     const type = forceType || await getBestEngineType();
     currentWasmType = type;
-    console.log("🚀 Bắt đầu Khởi tạo Pikafish phiên bản:", type);
+    //console.log("🚀 Bắt đầu Khởi tạo Pikafish phiên bản:", type);
 
     // KÍCH HOẠT GIỚI HẠN UI NGAY TẠI ĐÂY
     applyEngineHardwareLimits(type);
@@ -219,32 +220,32 @@ export async function initPikafish(forceType = null) {
     attachCrashHandlers();
 
     const basePath = window.location.href.replace(/\/[^\/]*$/, '');
-    console.log("Base Path:", basePath);
+    //console.log("Base Path:", basePath);
 
     // -----------------------------------------------------------------
     // PHÂN LUỒNG 1: BẢN MULTI (DÙNG <SCRIPT> TẢI TRỰC TIẾP LÊN MAIN THREAD)
     // -----------------------------------------------------------------
     if (type.includes("multi")) {
         const scriptUrl = `${basePath}/engines/${type}/pikafish.js`;
-        console.log("Tải file script Multi tại:", scriptUrl);
+        //console.log("Tải file script Multi tại:", scriptUrl);
         
         // Tạo thẻ script để tải module
         const script = document.createElement('script');
         script.src = scriptUrl;
         script.onload = () => {
-            console.log("Script Multi đã tải xong, đang gọi window.Pikafish()");
+            //console.log("Script Multi đã tải xong, đang gọi window.Pikafish()");
             // Khi file JS tải xong, hàm Pikafish() sẽ khả dụng ở window
             window.Pikafish({
                 locateFile: function(path) {
                     let finalPath = path.endsWith('.data') ? `${basePath}/engines/${path}` : `${basePath}/engines/${type}/${path}`;
-                    console.log("LocateFile request:", path, "->", finalPath);
+                    //console.log("LocateFile request:", path, "->", finalPath);
                     return finalPath;
                 },
                 onReceiveStdout: function(text) { handleEngineOutput(text); },
                 print: function(text) { handleEngineOutput(text); },
                 ALLOW_MEMORY_GROWTH: true
             }).then(function(module) {
-                console.log("Module Pikafish Multi khởi tạo THÀNH CÔNG!");
+                //console.log("Module Pikafish Multi khởi tạo THÀNH CÔNG!");
                 currentEngineInstance = module;
                 state.engineModule = {
                     sendCommand: (cmd) => {
@@ -263,7 +264,7 @@ export async function initPikafish(forceType = null) {
     // PHÂN LUỒNG 2: BẢN SINGLE (DÙNG BASE64 WORKER ĐỂ LÁCH CORS TRÊN ZALO/FB)
     // -----------------------------------------------------------------
     else {
-        console.log("Chuẩn bị tạo Base64 Worker cho bản Single...");
+        //console.log("Chuẩn bị tạo Base64 Worker cho bản Single...");
         // Viết code worker thuần túy dạng Text
         const workerScript = `
             var EngineInstance = null;
@@ -307,7 +308,7 @@ export async function initPikafish(forceType = null) {
             const blob = new Blob([workerScript], { type: 'application/javascript' });
             const blobUrl = URL.createObjectURL(blob);
             
-            console.log("Blob URL tạo thành công. Khởi tạo new Worker...");
+            //console.log("Blob URL tạo thành công. Khởi tạo new Worker...");
             const engineWorker = new Worker(blobUrl, { type: "classic" });
             
             URL.revokeObjectURL(blobUrl);
@@ -330,9 +331,9 @@ export async function initPikafish(forceType = null) {
             // Lắng nghe kết quả từ Worker
             engineWorker.onmessage = (e) => {
                 if (e.data.debug) {
-                    console.log("[Worker Debug]:", e.data.debug);
+                    //console.log("[Worker Debug]:", e.data.debug);
                 } else if (e.data.error) {
-                    console.error("[Worker Error Bắn về]:", e.data.error);
+                    //console.error("[Worker Error Bắn về]:", e.data.error);
                     onEngineError(e.data.error);
                 } else if (e.data.ready) {
                     console.log("Worker gửi tín hiệu READY!");
@@ -343,7 +344,7 @@ export async function initPikafish(forceType = null) {
             };
 
             // Gửi lệnh khởi tạo
-            console.log("Gửi lệnh init tới Worker...");
+            //console.log("Gửi lệnh init tới Worker...");
             engineWorker.postMessage({ wasm_type: type, basePath: basePath });
         } catch (e) {
             console.error("Lỗi bao ngoài khi khởi tạo Single Worker:", e);
@@ -374,7 +375,7 @@ function onEngineReady(type) {
         executePendingAction();
     } else {
         applyEngineSettings(); 
-        showToast(`✅ Tải AI thành công (Bản: ${type})`);
+        //showToast(`✅ Tải AI thành công (Bản: ${type})`);
     }
 }
 
@@ -415,111 +416,147 @@ export function applyEngineSettings() {
 }
 
 let currentCloudFetchId = 0;
-export function fetchCloudBook(fen) {
+export async function fetchCloudBook(fen) {
     const isRedTurn = fen.split(" ")[1] === "w";
     const isAITurn = (isRedTurn && state.aiPlaysRed) || (!isRedTurn && state.aiPlaysBlack);
 
-    // Xử lý khi mất mạng hoàn toàn (Offline)
+    const container = document.getElementById('cloudbook-list-container');
+    if (!container) return;
+
+    // --- KIỂM TRA CHẾ ĐỘ BOOK ---
+    const bookType = state.appSettings.bookType || 'cloud';
+
+    if (bookType === 'local') {
+        container.innerHTML = '<div style="text-align: center; color: #888; margin-top: 10px;">Đang tìm trong Local Book...</div>';
+        
+        // Gọi Worker Wasm!
+        const localMoves = await queryLocalBookWorker(fen);
+        
+        // NẾU WORKER TRẢ VỀ TÍN HIỆU ĐANG NẠP VÀO RAM
+        if (localMoves === 'LOADING') {
+            container.innerHTML = '<div style="text-align: center; color: #1a73e8; margin-top: 10px;">⏳ Đang nạp Local Book vào RAM...</div>';
+            return;
+        }
+        
+        // YÊU CẦU 2: NẾU CHƯA CÓ FILE LOCAL BOOK TRONG MÁY
+        if (localMoves === 'NO_DB') {
+            container.innerHTML = '<div style="text-align: center; color: #d32f2f; margin-top: 15px; line-height: 1.5;">Chưa có dữ liệu Local Book<br><span style="font-size: 12px; color: #666; font-weight: normal;">Vui lòng vào <b>Cài đặt</b> ⚙️ để tải lên tệp</span></div>';
+            if (isAITurn) triggerEngineOnly();
+            return;
+        }
+        
+        handleBookResults(localMoves, isAITurn, isRedTurn, container, fen);
+        return;
+    }
+
+    // --- XỬ LÝ CLOUD BOOK BÌNH THƯỜNG ---
+    
+    // YÊU CẦU 1: KHI OFFLINE, XÓA DỮ LIỆU CŨ VÀ BÁO LỖI
     if (!navigator.onLine) {
+        container.innerHTML = '<div style="text-align: center; color: #d32f2f; margin-top: 15px;">❌ Không có kết nối mạng để tải Cloud Book</div>';
         if (isAITurn) setTimeout(() => triggerEngineOnly(), 10);
         return; 
     }
     
     const fetchId = ++currentCloudFetchId;
-    const container = document.getElementById('cloudbook-list-container');
-    if (!container) return;
-    
-    container.innerHTML = '<div style="text-align: center; color: #888; margin-top: 10px;">Đang tải dữ liệu...</div>';
+    container.innerHTML = '<div style="text-align: center; color: #888; margin-top: 10px;">Đang tải dữ liệu Cloud...</div>';
     let shortFen = fen.split(" ").slice(0, 2).join(" ");
     let url = `https://www.chessdb.cn/chessdb.php?action=queryall&board=${encodeURIComponent(shortFen)}`;
     
-    // TẠO ABORT CONTROLLER (Ép timeout ngắt kết nối sau 2 giây nếu server nghẽn)
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 3000);
 
     fetch(url, { signal: controller.signal }).then(res => {
-        clearTimeout(timeoutId); // Xóa bộ đếm nếu server trả lời sớm
+        clearTimeout(timeoutId);
         return res.text();
     }).then(text => {
         if (fetchId !== currentCloudFetchId) return;
         
-        const currentRoundNum = parseInt(fen.split(" ")[5]) || 1;
-        let effectiveCloudLimit = state.appMode === 'vsbot' ? 1 : state.appSettings.cloudBookLimit;
-        const canUseCloudBook = state.appSettings.cloudBookEnabled && (currentRoundNum <= effectiveCloudLimit);
-        let isValidCloudData = text && !text.includes("unknown") && !text.includes("invalid") && !text.includes("checkmate") && !text.includes("stalemate");
-
-        // TRƯỜNG HỢP 1: Lượt máy đi VÀ Cloud Book CÓ sách
-        if (isAITurn && canUseCloudBook && isValidCloudData) {
+        let isValidCloudData = text && !text.includes("unknown") && !text.includes("invalid");
+        let parsedMoves = [];
+        
+        if (isValidCloudData) {
             let moves = text.split('|');
-            let firstMoveData = moves[0].split(',');
-            let moveObj = {};
-            firstMoveData.forEach(p => { let [k, v] = p.split(':'); moveObj[k] = v; });
-            
-            if (moveObj.move && getStrictLegalMoves(state.currentSituation, state.currentNode.fen).includes(moveObj.move)) {
-                let delayMs = state.appMode !== 'vsbot' ? (state.aiSettings.moveTime || 1) * 1000 : 1000;
-                showAILoading();
-                
-                clearTimeout(cloudBookTimeoutId);
-                cloudBookTimeoutId = setTimeout(() => { 
-                    const isRedTurnNow = state.currentNode.fen.split(" ")[1] === "w";
-                    const willAIOperate = (isRedTurnNow && state.aiPlaysRed) || (!isRedTurnNow && state.aiPlaysBlack);
-                    if (willAIOperate) {
-                        hideAILoading();
-                        executeMove(moveObj.move); 
-                    } else {
-                        hideAILoading();
-                    }
-                }, delayMs); 
-                return;
-            }
-        }
-
-        // TRƯỜNG HỢP 2: Nếu là lượt Máy đi nhưng HẾT SÁCH (hoặc cờ lạ) -> Mở khóa cho Pikafish tự nghĩ
-        if (isAITurn) triggerEngineOnly();
-
-        // HIỂN THỊ DANH SÁCH LÊN UI
-        if (!isValidCloudData) {
-            container.innerHTML = '<div style="text-align: center; color: #888; margin-top: 10px;">Không có dữ liệu khai cuộc</div>';
-            return;
+            moves.forEach(mStr => {
+                let parts = mStr.split(','); let moveObj = {};
+                parts.forEach(p => { let [k, v] = p.split(':'); moveObj[k] = v; });
+                if (moveObj.move) parsedMoves.push(moveObj);
+            });
         }
         
-        let moves = text.split('|'); container.innerHTML = ''; let hasValidMove = false;
-        let headerBtn = document.createElement('div'); headerBtn.className = 'cloud-btn cloud-header';
-        let spanHeaderMove = document.createElement('span'); spanHeaderMove.innerText = 'Nước Đi';
-        let spanHeaderScore = document.createElement('span'); spanHeaderScore.innerText = isRedTurn ? 'Điểm Bên Đỏ' : 'Điểm Bên Đen';
-        headerBtn.appendChild(spanHeaderMove); headerBtn.appendChild(spanHeaderScore); container.appendChild(headerBtn);
-        
-        moves.forEach(mStr => {
-            let parts = mStr.split(','); let moveObj = {};
-            parts.forEach(p => { let [k, v] = p.split(':'); moveObj[k] = v; });
-            if (moveObj.move) {
-                hasValidMove = true; let isPositive = true; let scoreText = "0";
-                if (moveObj.score !== undefined) {
-                    let score = parseInt(moveObj.score); isPositive = score >= 0; scoreText = (isPositive ? '+' : '') + score;
-                } else if (moveObj.winrate !== undefined) {
-                    let wr = parseFloat(moveObj.winrate); isPositive = wr >= 50.0; scoreText = `${wr}%`; 
-                }
-                let notation = customTranslator(moveObj.move, fen) || moveObj.move;
-                let btn = document.createElement('button'); btn.className = `cloud-btn ${isPositive ? 'cloud-blue' : 'cloud-red'}`;
-                let spanMove = document.createElement('span'); spanMove.innerText = notation;
-                let spanScore = document.createElement('span'); spanScore.innerText = scoreText;
-                btn.appendChild(spanMove); btn.appendChild(spanScore);
-                btn.onclick = () => {
-                    if (getStrictLegalMoves(state.currentSituation, state.currentNode.fen).includes(moveObj.move)) { executeMove(moveObj.move); } 
-                    else { showToast("⚠️ Nước đi này bị cấm do luật lặp lại!"); }
-                };
-                container.appendChild(btn);
-            }
-        });
-        if (!hasValidMove) container.innerHTML = '<div style="text-align: center; color: #888; margin-top: 10px;">Không có dữ liệu khai cuộc</div>';
+        handleBookResults(parsedMoves, isAITurn, isRedTurn, container, fen);
         
     }).catch(err => {
-        // TRƯỜNG HỢP 3: CÁP QUANG ĐỨT / SERVER LỖI -> HẾT 2 GIÂY SẼ BỊ NÉM VÀO ĐÂY
         if (fetchId !== currentCloudFetchId) return;
-        container.innerHTML = '<div style="text-align: center; color: #d32f2f; margin-top: 10px;">Lỗi kết nối máy chủ CloudDB</div>';
-        
-        // Giải thoát cho Bot nếu nó đang phải chờ
+        container.innerHTML = '<div style="text-align: center; color: #d32f2f; margin-top: 10px;">❌ Lỗi kết nối máy chủ CloudDB</div>';
         if (isAITurn) triggerEngineOnly();
+    });
+}
+
+// --- HÀM RENDER & XỬ LÝ CHUNG CHO CẢ CLOUD VÀ LOCAL ---
+function handleBookResults(movesList, isAITurn, isRedTurn, container, fen) {
+    const currentRoundNum = parseInt(fen.split(" ")[5]) || 1;
+    let effectiveCloudLimit = state.appMode === 'vsbot' ? 1 : state.appSettings.cloudBookLimit;
+    const canUseBook = state.appSettings.cloudBookEnabled && (currentRoundNum <= effectiveCloudLimit);
+
+    // TRƯỜNG HỢP 1: Lượt AI và có sách hợp lệ
+    if (isAITurn && canUseBook && movesList.length > 0) {
+        let bestMove = movesList[0].move;
+        if (getStrictLegalMoves(state.currentSituation, state.currentNode.fen).includes(bestMove)) {
+            let delayMs = state.appMode !== 'vsbot' ? (state.aiSettings.moveTime || 1) * 1000 : 1000;
+            showAILoading();
+            
+            clearTimeout(cloudBookTimeoutId);
+            cloudBookTimeoutId = setTimeout(() => { 
+                const isRedTurnNow = state.currentNode.fen.split(" ")[1] === "w";
+                const willAIOperate = (isRedTurnNow && state.aiPlaysRed) || (!isRedTurnNow && state.aiPlaysBlack);
+                if (willAIOperate) {
+                    hideAILoading();
+                    executeMove(bestMove); 
+                } else {
+                    hideAILoading();
+                }
+            }, delayMs); 
+            return;
+        }
+    }
+
+    // TRƯỜNG HỢP 2: Lượt AI mà hết sách -> Chạy Pikafish
+    if (isAITurn) triggerEngineOnly();
+
+    // HIỂN THỊ DANH SÁCH LÊN UI
+    if (movesList.length === 0) {
+        container.innerHTML = '<div style="text-align: center; color: #888; margin-top: 10px;">Không có dữ liệu khai cuộc</div>';
+        return;
+    }
+    
+    container.innerHTML = ''; 
+    let headerBtn = document.createElement('div'); headerBtn.className = 'cloud-btn cloud-header';
+    let spanHeaderMove = document.createElement('span'); spanHeaderMove.innerText = 'Nước Đi';
+    let spanHeaderScore = document.createElement('span'); spanHeaderScore.innerText = isRedTurn ? 'Điểm Bên Đỏ' : 'Điểm Bên Đen';
+    headerBtn.appendChild(spanHeaderMove); headerBtn.appendChild(spanHeaderScore); container.appendChild(headerBtn);
+    
+    movesList.forEach(moveObj => {
+        let isPositive = true; let scoreText = "0";
+        if (moveObj.score !== undefined) {
+            let score = parseInt(moveObj.score); isPositive = score >= 0; scoreText = (isPositive ? '+' : '') + score;
+        } else if (moveObj.winrate !== undefined) {
+            let wr = parseFloat(moveObj.winrate); isPositive = wr >= 50.0; scoreText = `${wr}%`; 
+        }
+        
+        // Import module game.js -> customTranslator để dịch sang tiếng Việt
+        import('./game.js').then(({ customTranslator }) => {
+            let notation = customTranslator(moveObj.move, fen) || moveObj.move;
+            let btn = document.createElement('button'); btn.className = `cloud-btn ${isPositive ? 'cloud-blue' : 'cloud-red'}`;
+            let spanMove = document.createElement('span'); spanMove.innerText = notation;
+            let spanScore = document.createElement('span'); spanScore.innerText = scoreText;
+            btn.appendChild(spanMove); btn.appendChild(spanScore);
+            btn.onclick = () => {
+                if (getStrictLegalMoves(state.currentSituation, state.currentNode.fen).includes(moveObj.move)) { executeMove(moveObj.move); } 
+                else { showToast("⚠️ Nước đi này bị cấm do luật lặp lại!"); }
+            };
+            container.appendChild(btn);
+        });
     });
 }
 
@@ -547,7 +584,7 @@ function handleStateTransition() {
     if (isEngineSearching) {
         // KIỂM TRA NẾU ĐANG CHẠY SINGLE THREAD TRÊN WORKER
         if (currentEngineInstance instanceof Worker) {
-            console.log("Single-thread bị block, đang tiêu diệt và hồi sinh Worker...");
+            //console.log("Single-thread bị block, đang tiêu diệt và hồi sinh Worker...");
             currentEngineInstance.terminate(); // Giết Worker cũ
             currentEngineInstance = null;
             state.engineModule = null;

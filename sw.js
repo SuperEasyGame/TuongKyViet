@@ -1,5 +1,5 @@
 // sw.js
-const CACHE_NAME = '0.1.5';
+const CACHE_NAME = '0.2.2';
 
 const urlsToCache = [
     './',
@@ -19,6 +19,12 @@ const urlsToCache = [
     './manifest.json',
     './vschess/jquery.js',
     './vschess/vschess.function.js',
+
+    './sql/sql-wasm.js',
+    './sql/sql-wasm.wasm',
+
+    './js/localbook.js',
+    './js/localbook.worker.js',
     
     // FILE DỮ LIỆU DÙNG CHUNG CỦA AI
     './engines/pikafish.data',

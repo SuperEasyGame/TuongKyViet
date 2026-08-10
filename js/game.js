@@ -548,6 +548,15 @@ export function forceStopAIPlayers() {
 }
 
 export function checkGameOver() {
+    const puzModal = document.getElementById('puzzle-result-modal');
+    if (puzModal && puzModal.style.display === 'flex') return true;
+
+    const gameModal = document.getElementById('new-game-modal');
+    if (gameModal && gameModal.style.display === 'flex') return true;
+
+    const memoModal = document.getElementById('memo-gameover-modal');
+    if (memoModal && memoModal.style.display === 'flex') return true;
+    
     if (state.appMode === 'memorize') {
         const children = state.currentNode.children;
         const isSegmentEnd = (state.memorizeSettings.method === 'segment' && state.currentNode.id === state.memorizeSettings.endNodeId);
