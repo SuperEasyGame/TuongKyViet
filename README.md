@@ -18,7 +18,6 @@ Do dự án có sử dụng tệp bỏ qua `.gitignore` để không đưa thư 
 
 ## 🚀 Hướng dẫn Cài đặt & Khởi chạy
 
-### Bước 1: Tải mã nguồn về máy
 Bạn có thể clone dự án bằng Git hoặc tải file `.zip` từ GitHub và giải nén.
 ```bash
 git clone https://github.com/SuperEasyGame/TuongKyViet.git
