@@ -18,7 +18,9 @@ const defaultSystem = {
     cloudBookLimit: 10,
     animation: true,
     arrows: true,
-    sound: true
+    sound: true,
+    boardStyle: "style/1-mac_dinh", 
+    pieceStyle: "style/1-mac_dinh"
 };
 
 const defaultAnalysis = {
@@ -83,6 +85,12 @@ export const state = {
 
     puzzleOpenedFromMenu: false,      
     memorizeOpenedFromMenu: false,
+
+    currentLibraryFolderId: "root", 
+    libraryHistory: [],
+
+    currentMemoFolderId: "root", 
+    memoHistory: [],
 
     appSettings: savedSystem,
     aiSettings: savedAnalysis,

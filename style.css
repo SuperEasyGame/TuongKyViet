@@ -65,11 +65,13 @@ body {
 
 #chess-board-area { 
     width: 100%; 
-    /* BÍ QUYẾT 3: Tránh bàn cờ phình to gây tràn màn hình. Khóa width theo chiều cao thực tế của PC */
     max-width: calc((100dvh - 100px) * (380 / 420));
     aspect-ratio: 380 / 420; 
-    background-image: url('style/board.webp'); 
+    
+    /* FIX LỖI: Ưu tiên nhận biến đổi ảnh từ JS */
+    background-image: var(--bg-image, url('style/1-mac_dinh/board.webp')); 
     background-size: 100% 100%; 
+    
     position: relative; 
     transition: transform 0.5s ease; 
     margin-bottom: 4px; 
@@ -80,7 +82,9 @@ body {
     content: "";
     position: absolute;
     top: 0; left: 0; right: 0; bottom: 0;
-    background-image: url('style/board.webp'); 
+    
+    /* FIX LỖI: Lớp bọc này cũng phải nhận lệnh đổi ảnh từ JS */
+    background-image: var(--bg-image, url('style/1-mac_dinh/board.webp')); 
     background-size: 100% 100%; 
     background-repeat: no-repeat; 
     z-index: 0;
@@ -916,3 +920,34 @@ body.mode-puzzle .puzzle-only { display: flex !important; }
 
 /* Vô hiệu hóa List nước đi trong chế độ Giải Bài Tập */
 body.mode-puzzle #move-list-container { pointer-events: none; }
+
+/* =========================================================
+   STYLE LIST BUTTONS (CHỌN BÀN CỜ / QUÂN CỜ)
+   ========================================================= */
+.style-item-btn {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 15px;
+    background: #fff;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-size: 15px;
+    color: #444;
+    font-weight: bold;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.02);
+}
+.style-item-btn:hover {
+    background: #f9f9f9;
+    border-color: #ccc;
+}
+.style-item-btn:active {
+    transform: scale(0.98);
+}
+.style-item-active {
+    background: #e6f9ed !important;
+    border-color: #008a3e !important;
+    color: #008a3e !important;
+}

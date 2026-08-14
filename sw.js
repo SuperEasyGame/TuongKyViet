@@ -1,5 +1,5 @@
 // sw.js
-const CACHE_NAME = '0.2.2';
+const CACHE_NAME = '0.2.5';
 
 const urlsToCache = [
     './',
@@ -49,10 +49,68 @@ const urlsToCache = [
     './engines/multi_simd_relaxed/pikafish.worker.js',
     
     // GIAO DIỆN VÀ ÂM THANH
-    './style/board.webp', './style/shadow.webp', './style/dot.webp', './style/from.webp', './style/selection.webp', './style/to.webp',
-    './style/br.webp', './style/bn.webp', './style/bb.webp', './style/ba.webp', './style/bk.webp', './style/bc.webp', './style/bp.webp',
-    './style/wr.webp', './style/wn.webp', './style/wb.webp', './style/wa.webp', './style/wk.webp', './style/wc.webp', './style/wp.webp',
-    './style/blind_b.webp', './style/blind_w.webp',
+    './style/shadow.webp', './style/dot.webp', './style/from.webp', './style/selection.webp', './style/to.webp',
+
+    './style/1-mac_dinh/br.webp', './style/1-mac_dinh/bn.webp', './style/1-mac_dinh/bb.webp', './style/1-mac_dinh/ba.webp', './style/1-mac_dinh/bk.webp', 
+    './style/1-mac_dinh/bc.webp', './style/1-mac_dinh/bp.webp','./style/1-mac_dinh/wr.webp', './style/1-mac_dinh/wn.webp', './style/1-mac_dinh/wb.webp', 
+    './style/1-mac_dinh/wa.webp', './style/1-mac_dinh/wk.webp', './style/1-mac_dinh/wc.webp', './style/1-mac_dinh/wp.webp',
+    './style/1-mac_dinh/blind_b.webp', './style/1-mac_dinh/blind_w.webp',
+
+    './style/2-phi_thuy/br.webp', './style/2-phi_thuy/bn.webp', './style/2-phi_thuy/bb.webp', './style/2-phi_thuy/ba.webp', './style/2-phi_thuy/bk.webp', 
+    './style/2-phi_thuy/bc.webp', './style/2-phi_thuy/bp.webp','./style/2-phi_thuy/wr.webp', './style/2-phi_thuy/wn.webp', './style/2-phi_thuy/wb.webp', 
+    './style/2-phi_thuy/wa.webp', './style/2-phi_thuy/wk.webp', './style/2-phi_thuy/wc.webp', './style/2-phi_thuy/wp.webp',
+    './style/2-phi_thuy/blind_b.webp', './style/2-phi_thuy/blind_w.webp',
+
+    './style/3-giay_nham/br.webp', './style/3-giay_nham/bn.webp', './style/3-giay_nham/bb.webp', './style/3-giay_nham/ba.webp', './style/3-giay_nham/bk.webp', 
+    './style/3-giay_nham/bc.webp', './style/3-giay_nham/bp.webp','./style/3-giay_nham/wr.webp', './style/3-giay_nham/wn.webp', './style/3-giay_nham/wb.webp', 
+    './style/3-giay_nham/wa.webp', './style/3-giay_nham/wk.webp', './style/3-giay_nham/wc.webp', './style/3-giay_nham/wp.webp',
+    './style/3-giay_nham/blind_b.webp', './style/3-giay_nham/blind_w.webp',
+
+    './style/4-go_mun/br.webp', './style/4-go_mun/bn.webp', './style/4-go_mun/bb.webp', './style/4-go_mun/ba.webp', './style/4-go_mun/bk.webp', 
+    './style/4-go_mun/bc.webp', './style/4-go_mun/bp.webp','./style/4-go_mun/wr.webp', './style/4-go_mun/wn.webp', './style/4-go_mun/wb.webp', 
+    './style/4-go_mun/wa.webp', './style/4-go_mun/wk.webp', './style/4-go_mun/wc.webp', './style/4-go_mun/wp.webp',
+    './style/4-go_mun/blind_b.webp', './style/4-go_mun/blind_w.webp',
+
+    './style/5-van_go/br.webp', './style/5-van_go/bn.webp', './style/5-van_go/bb.webp', './style/5-van_go/ba.webp', './style/5-van_go/bk.webp', 
+    './style/5-van_go/bc.webp', './style/5-van_go/bp.webp','./style/5-van_go/wr.webp', './style/5-van_go/wn.webp', './style/5-van_go/wb.webp', 
+    './style/5-van_go/wa.webp', './style/5-van_go/wk.webp', './style/5-van_go/wc.webp', './style/5-van_go/wp.webp',
+    './style/5-van_go/blind_b.webp', './style/5-van_go/blind_w.webp',
+
+    './style/6-galaxy/br.webp', './style/6-galaxy/bn.webp', './style/6-galaxy/bb.webp', './style/6-galaxy/ba.webp', './style/6-galaxy/bk.webp', 
+    './style/6-galaxy/bc.webp', './style/6-galaxy/bp.webp','./style/6-galaxy/wr.webp', './style/6-galaxy/wn.webp', './style/6-galaxy/wb.webp', 
+    './style/6-galaxy/wa.webp', './style/6-galaxy/wk.webp', './style/6-galaxy/wc.webp', './style/6-galaxy/wp.webp',
+    './style/6-galaxy/blind_b.webp', './style/6-galaxy/blind_w.webp',
+
+    './style/7-da_co/br.webp', './style/7-da_co/bn.webp', './style/7-da_co/bb.webp', './style/7-da_co/ba.webp', './style/7-da_co/bk.webp', 
+    './style/7-da_co/bc.webp', './style/7-da_co/bp.webp','./style/7-da_co/wr.webp', './style/7-da_co/wn.webp', './style/7-da_co/wb.webp', 
+    './style/7-da_co/wa.webp', './style/7-da_co/wk.webp', './style/7-da_co/wc.webp', './style/7-da_co/wp.webp',
+    './style/7-da_co/blind_b.webp', './style/7-da_co/blind_w.webp',
+
+    './style/8-hoang_kim/br.webp', './style/8-hoang_kim/bn.webp', './style/8-hoang_kim/bb.webp', './style/8-hoang_kim/ba.webp', './style/8-hoang_kim/bk.webp', 
+    './style/8-hoang_kim/bc.webp', './style/8-hoang_kim/bp.webp','./style/8-hoang_kim/wr.webp', './style/8-hoang_kim/wn.webp', './style/8-hoang_kim/wb.webp', 
+    './style/8-hoang_kim/wa.webp', './style/8-hoang_kim/wk.webp', './style/8-hoang_kim/wc.webp', './style/8-hoang_kim/wp.webp',
+    './style/8-hoang_kim/blind_b.webp', './style/8-hoang_kim/blind_w.webp',
+
+    './style/9-kim_loai/br.webp', './style/9-kim_loai/bn.webp', './style/9-kim_loai/bb.webp', './style/9-kim_loai/ba.webp', './style/9-kim_loai/bk.webp', 
+    './style/9-kim_loai/bc.webp', './style/9-kim_loai/bp.webp','./style/9-kim_loai/wr.webp', './style/9-kim_loai/wn.webp', './style/9-kim_loai/wb.webp', 
+    './style/9-kim_loai/wa.webp', './style/9-kim_loai/wk.webp', './style/9-kim_loai/wc.webp', './style/9-kim_loai/wp.webp',
+    './style/9-kim_loai/blind_b.webp', './style/9-kim_loai/blind_w.webp',
+
+    './style/10-thuy_mac/br.webp', './style/10-thuy_mac/bn.webp', './style/10-thuy_mac/bb.webp', './style/10-thuy_mac/ba.webp', './style/10-thuy_mac/bk.webp', 
+    './style/10-thuy_mac/bc.webp', './style/10-thuy_mac/bp.webp','./style/10-thuy_mac/wr.webp', './style/10-thuy_mac/wn.webp', './style/10-thuy_mac/wb.webp', 
+    './style/10-thuy_mac/wa.webp', './style/10-thuy_mac/wk.webp', './style/10-thuy_mac/wc.webp', './style/10-thuy_mac/wp.webp',
+    './style/10-thuy_mac/blind_b.webp', './style/10-thuy_mac/blind_w.webp',
+
+    './style/11-hoa_sen/br.webp', './style/11-hoa_sen/bn.webp', './style/11-hoa_sen/bb.webp', './style/11-hoa_sen/ba.webp', './style/11-hoa_sen/bk.webp', 
+    './style/11-hoa_sen/bc.webp', './style/11-hoa_sen/bp.webp','./style/11-hoa_sen/wr.webp', './style/11-hoa_sen/wn.webp', './style/11-hoa_sen/wb.webp', 
+    './style/11-hoa_sen/wa.webp', './style/11-hoa_sen/wk.webp', './style/11-hoa_sen/wc.webp', './style/11-hoa_sen/wp.webp',
+    './style/11-hoa_sen/blind_b.webp', './style/11-hoa_sen/blind_w.webp',
+
+    './style/12-go_do/br.webp', './style/12-go_do/bn.webp', './style/12-go_do/bb.webp', './style/12-go_do/ba.webp', './style/12-go_do/bk.webp', 
+    './style/12-go_do/bc.webp', './style/12-go_do/bp.webp','./style/12-go_do/wr.webp', './style/12-go_do/wn.webp', './style/12-go_do/wb.webp', 
+    './style/12-go_do/wa.webp', './style/12-go_do/wk.webp', './style/12-go_do/wc.webp', './style/12-go_do/wp.webp',
+    './style/12-go_do/blind_b.webp', './style/12-go_do/blind_w.webp',
+
     './sound/check.mp3', './sound/eat.mp3', './sound/lose.mp3', './sound/move.mp3',
 
     // DỮ LIỆU CÁC BÀI TẬP 

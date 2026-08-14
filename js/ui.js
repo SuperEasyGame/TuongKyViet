@@ -61,7 +61,7 @@ export function openModal(modalId) {
         }
     }
     modal.style.display = 'flex';
-    setTimeout(() => { modal.classList.add('show'); }, 10);
+    setTimeout(() => { modal.classList.add('show'); }, 30);
 }
 
 export function closeModal(modalId) {
@@ -287,62 +287,143 @@ export function hideAILoading() {
 }
 
 // ==========================================
-// CÔNG NGHỆ VIRTUAL LIST DÀNH CHO THƯ VIỆN
+// CÔNG NGHỆ VIRTUAL LIST & QUẢN LÝ THƯ VIỆN CÂY
 // ==========================================
 let currentLibraryData = [];
 let libDomPool = [];
-const LIB_ITEM_HEIGHT = 48; // Chiều cao = đúng CSS .lib-item
-const LIB_VISIBLE_ITEMS = 25; // Số nút tạo ra tái chế
-export let pendingDeleteLibId = "";
+const LIB_ITEM_HEIGHT = 48; 
+const LIB_VISIBLE_ITEMS = 25; 
+
+export let pendingLibAction = { id: "", type: "", name: "" }; // Lưu trữ Item đang được thao tác
+export function setPendingLibAction(data) {pendingLibAction = data;}
+
+// Hàm chuẩn hóa Data: Ép dữ liệu phẳng cũ sang dạng Cây
+export async function normalizeLibraryData() {
+    let rawList = await getWorkspace('library_workspace');
+    if (!rawList) rawList = [];
+    
+    let hasChanged = false;
+    for (let i = 0; i < rawList.length; i++) {
+        // Nếu là data cũ chưa có type -> Gán mặc định là file và nằm ở root
+        if (!rawList[i].type) {
+            rawList[i].id = rawList[i].id_key; // Đổi id_key thành id cho chuẩn
+            rawList[i].name = rawList[i].file_name;
+            rawList[i].type = "file";
+            rawList[i].parentId = "root";
+            delete rawList[i].id_key;
+            delete rawList[i].file_name;
+            hasChanged = true;
+        }
+    }
+    
+    if (hasChanged) await saveWorkspace('library_workspace', rawList);
+    return rawList;
+}
 
 export async function renderLibraryList() {
     showLoading("Đang tải thư viện...");
-    const rawList = await getWorkspace('library_workspace') || [];
-    // 1. ĐẢO NGƯỢC DANH SÁCH (Mới nhất lên đầu)
-    currentLibraryData = rawList.slice().reverse(); 
+    const rawList = await normalizeLibraryData();
+    
+    let filteredList = rawList.filter(item => item.parentId === state.currentLibraryFolderId);
+    
+    // Lọc riêng Thư mục và File, lật ngược từng cái rồi ghép lại để Thư mục LUÔN nằm trên
+    let folders = filteredList.filter(item => item.type === "folder").reverse();
+    let files = filteredList.filter(item => item.type === "file").reverse();
+    
+    currentLibraryData = [...folders, ...files];
 
     const viewport = document.getElementById('lib-list-viewport');
     const spacer = document.getElementById('lib-list-spacer');
     const container = document.getElementById('lib-list-container');
     const emptyText = document.getElementById('lib-empty-text');
+    
+    // Cập nhật Tiêu đề và Nút Back
+    const titleSub = document.getElementById('lib-modal-subtitle');
+    const btnBack = document.getElementById('btn-lib-back');
+    if (state.currentLibraryFolderId === "root") {
+        titleSub.style.display = 'none';
+        btnBack.style.display = 'none';
+    } else {
+        const currentFolder = rawList.find(f => f.id === state.currentLibraryFolderId);
+        titleSub.innerText = currentFolder ? currentFolder.name : "Thư mục";
+        titleSub.style.display = 'block';
+        btnBack.style.display = 'block';
+    }
 
     if (currentLibraryData.length === 0) {
         emptyText.style.display = 'block';
         spacer.style.height = '0px';
         container.innerHTML = '';
-        libDomPool = []; // Reset pool
+        libDomPool = []; 
         hideLoading();
         return;
     } else {
         emptyText.style.display = 'none';
     }
 
-    // 2. KHỞI TẠO DOM POOL LẦN ĐẦU (Nếu chưa có)
     if (libDomPool.length === 0) {
         container.innerHTML = '';
         for (let i = 0; i < LIB_VISIBLE_ITEMS; i++) {
             const item = document.createElement('div');
             item.className = 'lib-item';
             item.innerHTML = `
+                <span class="lib-icon" style="margin-right: 8px; font-size: 18px;">📄</span>
                 <span class="lib-title"></span>
-                <button class="lib-btn-del" title="Xóa ván này">
-                    <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
-                </button>
+                <div class="lib-actions" style="display: flex; gap: 5px;">
+                    <button class="lib-btn-edit" style="display:none;" title="Đổi tên">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#e39817" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+                    </button>
+                    <button class="lib-btn-del" title="Xóa">
+                        <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+                    </button>
+                </div>
             `;
             
-            // Xử lý Click để Load ván cờ
             item.onclick = (e) => {
-                if(e.target.closest('.lib-btn-del')) return; // Bỏ qua nếu bấm trúng nút xóa
-                loadGameFromLibrary(item.dataset.idkey);
+                if(e.target.closest('.lib-actions')) return; 
+                
+                if (item.dataset.type === "folder") {
+                    state.libraryHistory.push(state.currentLibraryFolderId);
+                    state.currentLibraryFolderId = item.dataset.id;
+                    renderLibraryList();
+                } else {
+                    loadGameFromLibrary(item.dataset.id);
+                }
             };
 
-            // Xử lý Click nút Xóa
+            item.querySelector('.lib-btn-edit').onclick = (e) => {
+                e.stopPropagation();
+                pendingLibAction = { id: item.dataset.id, type: item.dataset.type, name: item.dataset.name };
+                document.getElementById('folder-action-title').innerText = "Đổi Tên Thư Mục";
+                document.getElementById('input-folder-name').value = item.dataset.name;
+                openModal('folder-action-modal');
+            };
+
             item.querySelector('.lib-btn-del').onclick = (e) => {
-                e.stopPropagation(); // Cấm nổi bọt xuống item.onclick
-                pendingDeleteLibId = item.dataset.idkey;
-                document.getElementById('delete-lib-name').innerText = item.dataset.filename;
+                e.stopPropagation(); 
+                pendingLibAction = { id: item.dataset.id, type: item.dataset.type, name: item.dataset.name };
+                
+                const nameEl = document.getElementById('delete-lib-name');
+                const descEl = document.getElementById('delete-lib-desc');
+                nameEl.innerText = item.dataset.name;
+                
+                if (item.dataset.type === "folder") {
+                    descEl.innerHTML = "Xóa thư mục này sẽ <strong style='color:#d32f2f;'>XÓA TOÀN BỘ</strong><br>các ván đấu và thư mục con bên trong!";
+                } else {
+                    descEl.innerHTML = "Bạn có muốn xóa ván đấu này không?";
+                }
                 openModal('delete-lib-modal');
             };
+
+            const cssBtn = `width: 34px; height: 34px; background: transparent; border: 1px solid transparent; cursor: pointer; display: flex; align-items: center; justify-content: center; border-radius: 6px; transition: all 0.2s;`;
+            item.querySelector('.lib-btn-edit').style.cssText = cssBtn;
+            item.querySelector('.lib-btn-del').style.cssText = cssBtn;
+            item.querySelector('.lib-btn-del').style.color = "#ff4d4f";
+
+            item.querySelector('.lib-btn-edit').onmouseenter = function() { this.style.background = "#fff8e1"; this.style.borderColor = "#ffcc80"; };
+            item.querySelector('.lib-btn-edit').onmouseleave = function() { this.style.background = "transparent"; this.style.borderColor = "transparent"; };
+            item.querySelector('.lib-btn-del').onmouseenter = function() { this.style.background = "#ffebee"; this.style.borderColor = "#ffcdd2"; };
+            item.querySelector('.lib-btn-del').onmouseleave = function() { this.style.background = "transparent"; this.style.borderColor = "transparent"; };
 
             libDomPool.push(item);
             container.appendChild(item);
@@ -353,7 +434,6 @@ export async function renderLibraryList() {
         });
     }
 
-    // 3. SET CHIỀU CAO ẢO & RENDER TRANG 1
     spacer.style.height = `${currentLibraryData.length * LIB_ITEM_HEIGHT}px`;
     viewport.scrollTop = 0;
     updateLibraryVirtualList();
@@ -379,42 +459,47 @@ function updateLibraryVirtualList() {
         if (dataIndex <= endIndex) {
             const data = currentLibraryData[dataIndex];
             dom.style.display = 'flex';
-            dom.dataset.idkey = data.id_key;
-            dom.dataset.filename = data.file_name;
+            dom.dataset.id = data.id;
+            dom.dataset.type = data.type;
+            dom.dataset.name = data.name;
             
             const titleEl = dom.querySelector('.lib-title');
-            titleEl.innerText = data.file_name;
-            titleEl.title = data.file_name; // Hiện tooltip nếu dài
+            const iconEl = dom.querySelector('.lib-icon');
+            const btnEdit = dom.querySelector('.lib-btn-edit');
+            
+            titleEl.innerText = data.name;
+            titleEl.title = data.name; 
+            
+            if (data.type === "folder") {
+                iconEl.innerText = "📁";
+                btnEdit.style.display = "flex"; 
+            } else {
+                iconEl.innerText = "📄";
+                btnEdit.style.display = "none"; 
+            }
         } else {
             dom.style.display = 'none';
         }
     }
 }
 
-// Logic Nạp ván cờ từ Thư viện
-// Logic Nạp ván cờ từ Thư viện
-async function loadGameFromLibrary(idKey) {
+async function loadGameFromLibrary(fileId) {
     showLoading("Đang mở ván cờ...");
     try {
-        const textData = await getWorkspace(idKey);
+        const textData = await getWorkspace(fileId);
         if (textData) {
             const nodeData = vschess.dataToNode(textData);
             const infoData = vschess.dataToInfo(textData);
             if (nodeData && nodeData.fen) {
                 
-                // =======================================================
-                // CƯỠNG CHẾ TRỞ VỀ CHẾ ĐỘ PHÂN TÍCH (ANALYZE MODE)
-                // =======================================================
                 state.appMode = 'analyze';
                 state.appSettings.appMode = 'analyze';
                 
-                // 1. Dọn dẹp CSS của chế độ Bot / Cờ mù / Luyện Nhớ Ván
                 document.body.classList.remove('mode-vsbot', 'mode-blind', 'mode-memorize');
                 const navBar = document.getElementById('nav-bar');
                 if (navBar) { navBar.style.opacity = '1'; navBar.style.pointerEvents = 'auto'; }
                 state.isPeeking = false;
 
-                // 2. Reset Tiêu đề Tab
                 const titleHeader = document.getElementById('tab-title');
                 if (titleHeader) {
                     titleHeader.innerHTML = `
@@ -427,38 +512,31 @@ async function loadGameFromLibrary(idKey) {
                 const titleTabBtn = document.querySelector('.ai-tab-btn[data-tab="title"]');
                 if (titleTabBtn) titleTabBtn.click();
 
-                // 3. Reset Active Menu
                 document.querySelectorAll('.menu-item').forEach(btn => btn.classList.remove('menu-item-active'));
                 const activeMenuBtn = document.getElementById('menu-analyze');
                 if (activeMenuBtn) activeMenuBtn.classList.add('menu-item-active');
 
-                // 4. Tắt các nút Máy đánh (nếu có)
                 const btnRed = document.getElementById('btn-ai-red');
                 if(btnRed) btnRed.classList.remove('tool-active');
                 const btnBlack = document.getElementById('btn-ai-black');
                 if(btnBlack) btnBlack.classList.remove('tool-active');
                 state.aiPlaysRed = false;
                 state.aiPlaysBlack = false;
-                // =======================================================
 
                 state.gameList = [{ info: infoData, node: nodeData }];
                 
-                // 5. Import động các Module để thực thi lệnh
                 const [gameModule, ioModule, stateModule] = await Promise.all([
                     import('./game.js'),
                     import('./io.js'),
                     import('./state.js')
                 ]);
                 
-                stateModule.storage.saveSystem(state.appSettings); // Lưu Setting
-                gameModule.forceStopAIPlayers(); // Hủy các luồng AI đang chạy
-                gameModule.loadGameFromList(0); // Nạp ván cờ lên giao diện
-                
-                // Vì mode hiện tại đã là 'analyze', hàm này sẽ tự động đè ván cờ vào "analyze_workspace"
+                stateModule.storage.saveSystem(state.appSettings); 
+                gameModule.forceStopAIPlayers(); 
+                gameModule.loadGameFromList(0); 
                 ioModule.saveGameState(); 
                 
                 closeModal('library-modal');
-                //showToast("✅ Đã mở ván cờ trong Chế Độ Phân Tích!");
             } else {
                 showToast("❌ File lỗi hoặc không hợp lệ!");
             }
@@ -469,22 +547,40 @@ async function loadGameFromLibrary(idKey) {
     hideLoading();
 }
 
-// Logic Xác nhận Xóa ván cờ
 export async function confirmDeleteLibraryItem() {
     closeModal('delete-lib-modal');
-    showLoading("Đang xóa...");
+    showLoading("Đang xử lý...");
+    
     try {
-        // 1. Xóa nội dung ván cờ thật sự khỏi IndexedDB
-        await deleteWorkspace(pendingDeleteLibId);
-        
-        // 2. Tìm và xóa dòng đó khỏi mảng 'library_workspace'
         let list = await getWorkspace('library_workspace') || [];
-        list = list.filter(item => item.id_key !== pendingDeleteLibId);
-        await saveWorkspace('library_workspace', list);
+        let idsToDelete = [pendingLibAction.id];
+        let fileIdsToRemoveFromDb = [];
+
+        if (pendingLibAction.type === "file") {
+            fileIdsToRemoveFromDb.push(pendingLibAction.id);
+        } else {
+            function getAllChildrenIds(parentId) {
+                let children = list.filter(item => item.parentId === parentId);
+                for (let child of children) {
+                    idsToDelete.push(child.id);
+                    if (child.type === "file") fileIdsToRemoveFromDb.push(child.id);
+                    else getAllChildrenIds(child.id); 
+                }
+            }
+            getAllChildrenIds(pendingLibAction.id);
+        }
+
+        for (let fileId of fileIdsToRemoveFromDb) {
+            await deleteWorkspace(fileId);
+        }
         
-        // 3. Render lại danh sách Virtual (Nó sẽ tự reload list mới)
+        list = list.filter(item => !idsToDelete.includes(item.id));
+        await saveWorkspace('library_workspace', list);
         await renderLibraryList();
-        showToast("✅ Đã xóa ván cờ thành công!");
+        
+        if (pendingLibAction.type === "file") showToast("✅ Đã xóa ván cờ!");
+        else showToast("✅ Đã xóa thư mục và các ván cờ bên trong!");
+
     } catch(e) {
         showToast("❌ Lỗi trong quá trình xóa!");
     }
@@ -497,14 +593,36 @@ export async function confirmDeleteLibraryItem() {
 let memoDomPool = [];
 
 export async function renderMemorizeList() {
-    showLoading("Đang tải thư viện...");
-    const rawList = await getWorkspace('library_workspace') || [];
-    currentLibraryData = rawList.slice().reverse(); 
+    showLoading("Đang tải danh sách...");
+    let rawList = await normalizeLibraryData();
+    
+    // Lọc theo thư mục hiện tại của Memo
+    let filteredList = rawList.filter(item => item.parentId === state.currentMemoFolderId);
+    
+    // Sắp xếp: Thư mục trên, File dưới
+    let folders = filteredList.filter(item => item.type === "folder").reverse();
+    let files = filteredList.filter(item => item.type === "file").reverse();
+    currentLibraryData = [...folders, ...files]; 
 
     const viewport = document.getElementById('memo-list-viewport');
     const spacer = document.getElementById('memo-list-spacer');
     const container = document.getElementById('memo-list-container');
     const emptyText = document.getElementById('memo-empty-text');
+
+    // Cập nhật Tiêu đề và Nút Back
+    const titleSub = document.getElementById('memo-modal-subtitle');
+    const btnBack = document.getElementById('btn-memo-back');
+    if (state.currentMemoFolderId === "root") {
+        if (titleSub) titleSub.style.display = 'none';
+        if (btnBack) btnBack.style.display = 'none';
+    } else {
+        const currentFolder = rawList.find(f => f.id === state.currentMemoFolderId);
+        if (titleSub) {
+            titleSub.innerText = currentFolder ? currentFolder.name : "Thư mục";
+            titleSub.style.display = 'block';
+        }
+        if (btnBack) btnBack.style.display = 'block';
+    }
 
     if (currentLibraryData.length === 0) {
         emptyText.style.display = 'block';
@@ -522,25 +640,35 @@ export async function renderMemorizeList() {
         for (let i = 0; i < LIB_VISIBLE_ITEMS; i++) {
             const item = document.createElement('div');
             item.className = 'lib-item';
-            // Custom lại Item: Không có nút xóa
-            item.innerHTML = `<span class="lib-title" style="text-align: center; width: 100%; padding: 0;"></span>`;
+            // Không có nút xóa/sửa, chỉ có Icon và Text
+            item.innerHTML = `
+                <span class="lib-icon" style="margin-right: 8px; font-size: 18px;">📄</span>
+                <span class="lib-title" style="flex: 1; text-align: left;"></span>
+            `;
             
-            // Xử lý Click: Tải nháp Data -> Mở Setup
             item.onclick = async () => {
-                showLoading("Đang nạp ván đấu...");
-                try {
-                    const textData = await getWorkspace(item.dataset.idkey);
-                    if (textData) {
-                        const nodeData = vschess.dataToNode(textData);
-                        const infoData = vschess.dataToInfo(textData);
-                        if (nodeData && nodeData.fen) {
-                            state.pendingMemorizeData = { node: nodeData, info: infoData };
-                            closeModal('memorize-modal');
-                            openModal('memorize-setup-modal');
-                        } else showToast("❌ File hỏng!");
-                    }
-                } catch(e) {}
-                hideLoading();
+                if (item.dataset.type === "folder") {
+                    // Chuyển thư mục
+                    state.memoHistory.push(state.currentMemoFolderId);
+                    state.currentMemoFolderId = item.dataset.id;
+                    renderMemorizeList();
+                } else {
+                    // Mở ván cờ (Giữ nguyên logic cũ)
+                    showLoading("Đang nạp ván đấu...");
+                    try {
+                        const textData = await getWorkspace(item.dataset.id);
+                        if (textData) {
+                            const nodeData = vschess.dataToNode(textData);
+                            const infoData = vschess.dataToInfo(textData);
+                            if (nodeData && nodeData.fen) {
+                                state.pendingMemorizeData = { node: nodeData, info: infoData };
+                                closeModal('memorize-modal');
+                                openModal('memorize-setup-modal');
+                            } else showToast("❌ File hỏng!");
+                        }
+                    } catch(e) {}
+                    hideLoading();
+                }
             };
 
             memoDomPool.push(item);
@@ -577,11 +705,22 @@ function updateMemoVirtualList() {
         if (dataIndex <= endIndex) {
             const data = currentLibraryData[dataIndex];
             dom.style.display = 'flex';
-            dom.dataset.idkey = data.id_key;
+            dom.dataset.id = data.id;
+            dom.dataset.type = data.type; // Phải lưu type để bắt sự kiện onclick
             
             const titleEl = dom.querySelector('.lib-title');
-            titleEl.innerText = data.file_name;
-            titleEl.title = data.file_name;
+            const iconEl = dom.querySelector('.lib-icon');
+            
+            titleEl.innerText = data.name;
+            titleEl.title = data.name;
+
+            // Xử lý đổi Icon
+            if (data.type === "folder") {
+                iconEl.innerText = "📁";
+            } else {
+                iconEl.innerText = "📄";
+            }
+
         } else {
             dom.style.display = 'none';
         }

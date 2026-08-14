@@ -107,10 +107,10 @@
                     <div id="piece-palette-mobile" class="piece-palette" style="display: none;">
                         <div class="palette-pieces">
                             <div class="palette-row">
-                                <img src="style/wr.webp" data-piece="R"><img src="style/wn.webp" data-piece="N"><img src="style/wb.webp" data-piece="B"><img src="style/wa.webp" data-piece="A"><img src="style/wk.webp" data-piece="K"><img src="style/wc.webp" data-piece="C"><img src="style/wp.webp" data-piece="P">
+                                <img src="style/1-mac_dinh/wr.webp" data-piece="R"><img src="style/1-mac_dinh/wn.webp" data-piece="N"><img src="style/1-mac_dinh/wb.webp" data-piece="B"><img src="style/1-mac_dinh/wa.webp" data-piece="A"><img src="style/1-mac_dinh/wk.webp" data-piece="K"><img src="style/1-mac_dinh/wc.webp" data-piece="C"><img src="style/1-mac_dinh/wp.webp" data-piece="P">
                             </div>
                             <div class="palette-row">
-                                <img src="style/br.webp" data-piece="r"><img src="style/bn.webp" data-piece="n"><img src="style/bb.webp" data-piece="b"><img src="style/ba.webp" data-piece="a"><img src="style/bk.webp" data-piece="k"><img src="style/bc.webp" data-piece="c"><img src="style/bp.webp" data-piece="p">
+                                <img src="style/1-mac_dinh/br.webp" data-piece="r"><img src="style/1-mac_dinh/bn.webp" data-piece="n"><img src="style/1-mac_dinh/bb.webp" data-piece="b"><img src="style/1-mac_dinh/ba.webp" data-piece="a"><img src="style/1-mac_dinh/bk.webp" data-piece="k"><img src="style/1-mac_dinh/bc.webp" data-piece="c"><img src="style/1-mac_dinh/bp.webp" data-piece="p">
                             </div>
                         </div>
                         <div class="palette-turn-toggle turn-red">
@@ -140,10 +140,10 @@
                 <div id="piece-palette-pc" class="piece-palette" style="display: none; height: 100%;">
                     <div class="palette-pieces" style="flex-direction: row;">
                         <div class="palette-row" style="flex-direction: column;">
-                            <img src="style/wr.webp" data-piece="R"><img src="style/wn.webp" data-piece="N"><img src="style/wb.webp" data-piece="B"><img src="style/wa.webp" data-piece="A"><img src="style/wk.webp" data-piece="K"><img src="style/wc.webp" data-piece="C"><img src="style/wp.webp" data-piece="P">
+                            <img src="style/1-mac_dinh/wr.webp" data-piece="R"><img src="style/1-mac_dinh/wn.webp" data-piece="N"><img src="style/1-mac_dinh/wb.webp" data-piece="B"><img src="style/1-mac_dinh/wa.webp" data-piece="A"><img src="style/1-mac_dinh/wk.webp" data-piece="K"><img src="style/1-mac_dinh/wc.webp" data-piece="C"><img src="style/1-mac_dinh/wp.webp" data-piece="P">
                         </div>
                         <div class="palette-row" style="flex-direction: column;">
-                            <img src="style/br.webp" data-piece="r"><img src="style/bn.webp" data-piece="n"><img src="style/bb.webp" data-piece="b"><img src="style/ba.webp" data-piece="a"><img src="style/bk.webp" data-piece="k"><img src="style/bc.webp" data-piece="c"><img src="style/bp.webp" data-piece="p">
+                            <img src="style/1-mac_dinh/br.webp" data-piece="r"><img src="style/1-mac_dinh/bn.webp" data-piece="n"><img src="style/1-mac_dinh/bb.webp" data-piece="b"><img src="style/1-mac_dinh/ba.webp" data-piece="a"><img src="style/1-mac_dinh/bk.webp" data-piece="k"><img src="style/1-mac_dinh/bc.webp" data-piece="c"><img src="style/1-mac_dinh/bp.webp" data-piece="p">
                         </div>
                     </div>
                     <div class="palette-turn-toggle turn-red" style="border-left: none; border-top: 2px solid rgba(0,0,0,0.1); padding-left: 0; padding-top: 10px;">
@@ -645,6 +645,23 @@
                 </div>
 
                 <div class="settings-group-title">Giao diện & Âm thanh</div>
+                <!-- BÀN CỜ -->
+                <div class="settings-row" id="row-board-style" style="cursor: pointer; padding-top: 10px; padding-bottom: 10px;">
+                    <div class="settings-label" style="flex: 1; pointer-events: none;">
+                        <strong style="font-size: 15px; color: #333;">Bàn cờ</strong>
+                    </div>
+                    <span id="current-board-name" style="color: #008a3e; font-size: 14px; font-weight: bold; margin-right: 10px; pointer-events: none;">Mặc Định</span>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#666" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="pointer-events: none;"><path d="m9 18 6-6-6-6"/></svg>
+                </div>
+
+                <!-- QUÂN CỜ -->
+                <div class="settings-row" id="row-piece-style" style="cursor: pointer; padding-top: 10px; padding-bottom: 10px;">
+                    <div class="settings-label" style="flex: 1; pointer-events: none;">
+                        <strong style="font-size: 15px; color: #333;">Quân cờ</strong>
+                    </div>
+                    <span id="current-piece-name" style="color: #008a3e; font-size: 14px; font-weight: bold; margin-right: 10px; pointer-events: none;">Mặc Định</span>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#666" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="pointer-events: none;"><path d="m9 18 6-6-6-6"/></svg>
+                </div>
 
                 <div class="settings-row">
                     <div class="settings-label">
@@ -763,15 +780,26 @@
     <!-- MODAL THƯ VIỆN VÁN ĐẤU -->
     <div id="library-modal" class="modal-overlay">
         <div class="modal-content" style="width: 350px; height: 65vh;">
-            <div class="modal-header" style="justify-content: center; font-size: 18px; color: #333;">
-                Thư Viện Của Tôi
+            <div class="modal-header" style="justify-content: space-between; font-size: 18px; color: #333; display: flex; align-items: center; padding: 10px 15px;">
+                <button id="btn-lib-back" style="background: none; border: none; display: none; cursor: pointer; color: #1a73e8; padding: 0;">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+                </button>
+                
+                <div style="display: flex; flex-direction: column; flex: 1; align-items: center; overflow: hidden;">
+                    <span id="lib-modal-title" style="font-weight: bold; line-height: 1.2;">Thư Viện</span>
+                    <span id="lib-modal-subtitle" style="font-size: 12px; color: #008a3e; font-weight: normal; display: none; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 90%;"></span>
+                </div>
+
+                <button id="btn-lib-add-folder" style="background: none; border: none; cursor: pointer; color: #008a3e; padding: 0; display: flex; align-items: center;" title="Tạo Thư Mục">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/><line x1="12" y1="10" x2="12" y2="16"/><line x1="9" y1="13" x2="15" y2="13"/></svg>
+                </button>
             </div>
             <div class="modal-body" style="flex: 1; padding: 0; display: flex; flex-direction: column; overflow: hidden; position: relative; background: #fdfdfd;">
                 <div id="lib-empty-text" style="display: none; text-align: center; color: #555; margin-top: 30px; font-size: 14px; padding: 0 15px; line-height: 1.8;">
-                    <strong>Thư viện trống</strong><br><br>
+                    <strong>Thư mục trống</strong><br><br>
                     Để thêm ván đấu vào thư viện:<br>
                     1. Vào chế độ <strong style="color:#008a3e;">🔍 Phân Tích</strong><br>
-                    2. Bấm nút <strong>Xuất ván đấu</strong> ( <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#333" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width: 14px; height: 14px; vertical-align: middle;"><path d="M21 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h6"></path><path d="m21 3-9 9"></path><path d="M15 3h6v6"></path></svg> )<br>
+                    2. Bấm nút <strong>Xuất ván đấu</strong><br>
                     3. Chọn <strong style="color:#e39817;">📚 Lưu vào Thư Viện</strong>
                 </div>
                 <!-- Khung cuộn ảo (Virtual List) -->
@@ -785,15 +813,54 @@
             </div>
         </div>
     </div>
+    <!-- MODAL TẠO / ĐỔI TÊN THƯ MỤC -->
+    <div id="folder-action-modal" class="modal-overlay" style="z-index: 1001;">
+        <div class="modal-content" style="width: 300px;">
+            <div class="modal-header" id="folder-action-title" style="justify-content: center; font-size: 18px; color: #333;">
+                Tạo Thư Mục Mới
+            </div>
+            <div class="modal-body" style="padding: 20px 15px;">
+                <input type="text" id="input-folder-name" maxlength="50" placeholder="Nhập tên thư mục..." style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; font-family: inherit; font-size: 15px; outline: none;">
+            </div>
+            <div style="display: flex; border-top: 1px solid #eee;">
+                <button class="modal-btn-half" id="btn-folder-cancel" style="color: #666; border-right: 1px solid #eee;">Hủy</button>
+                <button class="modal-btn-half" id="btn-folder-confirm" style="color: #008a3e; font-weight: bold;">Lưu</button>
+            </div>
+        </div>
+    </div>
 
-    <!-- MODAL XÁC NHẬN XÓA VÁN ĐẤU (Đè lên Thư viện) -->
+    <!-- MODAL LƯU VÁN ĐẤU VÀO THƯ VIỆN CHỌN ĐÍCH -->
+    <div id="save-library-modal" class="modal-overlay" style="z-index: 1001;">
+        <div class="modal-content" style="width: 320px;">
+            <div class="modal-header" style="justify-content: center; font-size: 18px; color: #e39817;">
+                Lưu Vào Thư Viện
+            </div>
+            <div class="modal-body" style="padding: 20px 15px; display: flex; flex-direction: column; gap: 15px;">
+                <div class="input-group">
+                    <label style="font-weight: bold; color: #333;">Tên ván đấu:</label>
+                    <input type="text" id="save-lib-filename" maxlength="100" placeholder="Nhập tên ván..." style="padding: 8px;">
+                </div>
+                <div class="input-group">
+                    <label style="font-weight: bold; color: #333;">Lưu vào Thư mục:</label>
+                    <select id="save-lib-folder-select" style="padding: 8px; border-radius: 4px; border: 1px solid #ccc; outline: none; font-size: 14px; font-family: inherit; width: 100%; background: #fdfdfd;"></select>
+                </div>
+            </div>
+            <div style="display: flex; border-top: 1px solid #eee;">
+                <button class="modal-btn-half" id="btn-save-lib-cancel" style="color: #666; border-right: 1px solid #eee;">Hủy</button>
+                <button class="modal-btn-half" id="btn-save-lib-confirm" style="color: #e39817; font-weight: bold;">Lưu Ngay</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL XÁC NHẬN XÓA (Đè lên Thư viện) -->
     <div id="delete-lib-modal" class="modal-overlay" style="z-index: 1001;">
         <div class="modal-content" style="width: 300px;">
             <div class="modal-header" style="justify-content: center; font-size: 18px; color: #d32f2f;">
-                Xóa Ván Đấu
+                Cảnh Báo Xóa
             </div>
-            <div class="modal-body" style="text-align: center; padding: 20px 15px; color: #555; font-size: 15px;">
-                Bạn có muốn xóa ván<br><strong id="delete-lib-name" style="color: #333; display: block; margin-top: 5px;"></strong>
+            <div class="modal-body" style="text-align: center; padding: 20px 15px; color: #555; font-size: 14px; line-height: 1.5;">
+                <span id="delete-lib-desc">Bạn có muốn xóa mục này không?</span><br>
+                <strong id="delete-lib-name" style="color: #333; display: block; margin-top: 8px;"></strong>
             </div>
             <div style="display: flex; border-top: 1px solid #eee;">
                 <button class="modal-btn-half" id="btn-del-lib-cancel" style="color: #666; border-right: 1px solid #eee;">Hủy</button>
@@ -805,8 +872,17 @@
     <!-- MODAL CHỌN VÁN ĐẤU: LUYỆN NHỚ VÁN -->
     <div id="memorize-modal" class="modal-overlay">
         <div class="modal-content" style="width: 350px; height: 65vh;">
-            <div class="modal-header" style="justify-content: center; font-size: 18px; color: #333;">
-                Luyện Nhớ Ván
+            <div class="modal-header" style="justify-content: space-between; font-size: 18px; color: #333; display: flex; align-items: center; padding: 10px 15px;">
+                <button id="btn-memo-back" style="background: none; border: none; display: none; cursor: pointer; color: #1a73e8; padding: 0;">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+                </button>
+                
+                <div style="display: flex; flex-direction: column; flex: 1; align-items: center; overflow: hidden;">
+                    <span id="memo-modal-title" style="font-weight: bold; line-height: 1.2;">Luyện Nhớ Ván</span>
+                    <span id="memo-modal-subtitle" style="font-size: 12px; color: #008a3e; font-weight: normal; display: none; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 90%;"></span>
+                </div>
+
+                <div style="width: 24px;"></div> <!-- Để cân bằng Flexbox -->
             </div>
             <div class="modal-body" style="flex: 1; padding: 0; display: flex; flex-direction: column; overflow: hidden; position: relative; background: #fdfdfd;">
                 
@@ -971,6 +1047,22 @@
             <div style="display: flex; border-top: 1px solid #eee;">
                 <button class="modal-btn-half" id="btn-del-puz-cancel" style="color: #666; border-right: 1px solid #eee;">Hủy</button>
                 <button class="modal-btn-half" id="btn-del-puz-confirm" style="color: #d32f2f; font-weight: bold;">Xác Nhận</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL CHỌN GIAO DIỆN (BÀN CỜ / QUÂN CỜ) -->
+    <div id="style-select-modal" class="modal-overlay" style="z-index: 1002;">
+        <div class="modal-content" style="width: 300px; max-height: 60vh;">
+            <div class="modal-header" id="style-select-title" style="justify-content: center; font-size: 18px; color: #333;">
+                Chọn Bàn Cờ
+            </div>
+            <div class="modal-body" style="padding: 15px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; background: #fdfdfd;" id="style-list-container">
+                <!-- Danh sách button sẽ được nạp bằng JavaScript -->
+            </div>
+            <div style="display: flex; border-top: 1px solid #eee;">
+                <button class="modal-btn-half" id="btn-style-cancel" style="color: #666; border-right: 1px solid #eee;">Hủy</button>
+                <button class="modal-btn-half" id="btn-style-confirm" style="color: #008a3e; font-weight: bold;">Xác Nhận</button>
             </div>
         </div>
     </div>

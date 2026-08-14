@@ -1407,18 +1407,8 @@ export function initEvents() {
                 let { moves, comments } = getMoveListAndComments();
                 let vNode = getVschessNodeTree(state.rootNode);
                 
-                if (state.pendingDownloadType === 'library') {
-                    showLoading("Đang lưu vào thư viện...");
-                    const gameDataText = vschess.nodeToData_DhtmlXQ(vNode, state.currentGameInfo, false);
-                    const idKey = 'lib_' + Date.now();
-                    await saveWorkspace(idKey, gameDataText); 
-                    let libraryList = await getWorkspace('library_workspace') || [];
-                    libraryList.push({ id_key: idKey, file_name: rawFileName });
-                    await saveWorkspace('library_workspace', libraryList);
-                    hideLoading();
-                    showToast(`✅ Đã lưu "${rawFileName}" vào Thư viện thành công!`);
-                }
-                else if (state.pendingDownloadType === 'pgn-wxf') {
+                // ĐÃ XÓA KHỐI XỬ LÝ LIBRARY Ở ĐÂY, CHỈ GIỮ LẠI XUẤT FILE TĨNH
+                if (state.pendingDownloadType === 'pgn-wxf') {
                     let wxfMoves = vschess.nodeList2moveList(moves, state.rootNode.fen, "wxf", vschess.defaultOptions, false);
                     wxfMoves.shift(); 
                     const pgnData = vschess.moveListToData_PGN(wxfMoves, state.rootNode.fen, comments, state.currentGameInfo, state.currentGameInfo.result);
@@ -1426,23 +1416,66 @@ export function initEvents() {
                 } else if (state.pendingDownloadType === 'pgn-iccs') {
                     let iccsDashMoves = moves.map(m => m.substring(0,2) + "-" + m.substring(2,4));
                     const pgnData = vschess.moveListToData_PGN(iccsDashMoves, state.rootNode.fen, comments, state.currentGameInfo, state.currentGameInfo.result);
-                    downloadFile(filename + ".pgn", pgnData);
+                    downloadFile(downloadFileName + ".pgn", pgnData); // Đã fix biến filename thành downloadFileName
                 } else if (state.pendingDownloadType === 'xqf') {
                     const binArray = vschess.nodeToBinary_XQF(vNode, state.currentGameInfo, false);
-                    downloadFile(filename + ".xqf", binArray, true);
+                    downloadFile(downloadFileName + ".xqf", binArray, true);
                 } else if (state.pendingDownloadType === 'cbr') {
                     const binArray = vschess.nodeToBinary_CBR(vNode, state.currentGameInfo, false);
-                    downloadFile(filename + ".cbr", binArray, true);
+                    downloadFile(downloadFileName + ".cbr", binArray, true);
                 } else if (state.pendingDownloadType === 'che') {
                     const cheData = vschess.moveListToData_QQ(moves, false);
-                    downloadFile(filename + ".che", cheData);
+                    downloadFile(downloadFileName + ".che", cheData);
                 }
             } catch(e) { hideLoading(); showToast("❌ Có lỗi xảy ra khi xuất file!"); }
         };
     }
 
     const expLibrary = document.getElementById('exp-library');
-    if(expLibrary) expLibrary.onclick = () => openSaveModal('library');
+    if(expLibrary) {
+        expLibrary.onclick = async () => {
+            closeModal('export-modal');
+            
+            let { moves } = getMoveListAndComments();
+            let defaultName = state.currentGameInfo.title || "TuongKyViet";
+            if (defaultName === "Tượng Kỳ Việt" && moves.length > 0) defaultName += "_" + getFormattedDate();
+            document.getElementById('save-lib-filename').value = defaultName;
+            
+            // TẠO DANH SÁCH DROPDOWN CHO THƯ MỤC
+            const selectEl = document.getElementById('save-lib-folder-select');
+            selectEl.innerHTML = '<option value="root">📁 Thư mục gốc</option>';
+            
+            let list = await getWorkspace('library_workspace') || [];
+            let folders = list.filter(item => item.type === "folder");
+            
+            // Thuật toán Đệ quy vẽ cây Thư mục
+            function buildFolderOptions(parentId, prefix) {
+                let children = folders.filter(f => f.parentId === parentId);
+                for (let i = 0; i < children.length; i++) {
+                    let f = children[i];
+                    let isLast = (i === children.length - 1);
+                    let nodePrefix = prefix + (isLast ? " └── " : " ├── ");
+                    let childPrefix = prefix + (isLast ? "     " : " │   ");
+                    
+                    let option = document.createElement('option');
+                    option.value = f.id;
+                    // Fix chống lỗi khoảng trắng HTML bằng &nbsp;
+                    option.innerHTML = (nodePrefix + "📁 " + f.name).replace(/ /g, '&nbsp;');
+                    
+                    // Tự động chọn Thư mục mà người dùng đang mở gần nhất
+                    if (f.id === state.currentLibraryFolderId) option.selected = true;
+                    
+                    selectEl.appendChild(option);
+                    buildFolderOptions(f.id, childPrefix);
+                }
+            }
+            
+            buildFolderOptions("root", "");
+            if (state.currentLibraryFolderId === "root") selectEl.value = "root";
+
+            openModal('save-library-modal');
+        };
+    }
 
     const expPgnWxf = document.getElementById('exp-pgn-wxf');
     if(expPgnWxf) expPgnWxf.onclick = () => openSaveModal('pgn-wxf');
@@ -2003,4 +2036,286 @@ export function initEvents() {
 
     const btnDelPuzConfirm = document.getElementById('btn-del-puz-confirm');
     if (btnDelPuzConfirm) btnDelPuzConfirm.onclick = () => confirmDeletePuzzleFile();
+
+    // ==========================================
+    // CÁC SỰ KIỆN NÚT BẤM CHO THƯ VIỆN CÂY
+    // ==========================================
+    
+    // Nút Quay lại thư mục cha
+    const btnLibBack = document.getElementById('btn-lib-back');
+    if (btnLibBack) {
+        btnLibBack.onclick = () => {
+            if (state.libraryHistory.length > 0) {
+                state.currentLibraryFolderId = state.libraryHistory.pop();
+                import('./ui.js').then(ui => ui.renderLibraryList());
+            }
+        };
+    }
+
+    // Nút Bật Bảng Tạo Thư Mục Mới
+    const btnLibAddFolder = document.getElementById('btn-lib-add-folder');
+    if (btnLibAddFolder) {
+        btnLibAddFolder.onclick = () => {
+            import('./ui.js').then(ui => {
+                // SỬA LỖI Ở ĐÂY: Dùng hàm thay vì gán trực tiếp
+                ui.setPendingLibAction({ id: "", type: "folder", name: "" });
+                
+                document.getElementById('folder-action-title').innerText = "Tạo Thư Mục Mới";
+                document.getElementById('input-folder-name').value = "";
+                openModal('folder-action-modal');
+            });
+        };
+    }
+
+    // Hủy / Xác nhận Tạo & Sửa tên Thư mục
+    const btnFolderCancel = document.getElementById('btn-folder-cancel');
+    if (btnFolderCancel) btnFolderCancel.onclick = () => closeModal('folder-action-modal');
+
+    const btnFolderConfirm = document.getElementById('btn-folder-confirm');
+    if (btnFolderConfirm) {
+        btnFolderConfirm.onclick = async () => {
+            const folderName = document.getElementById('input-folder-name').value.trim();
+            if (!folderName) {
+                showToast("❌ Tên thư mục không được để trống!");
+                return;
+            }
+            
+            showLoading("Đang xử lý...");
+            import('./ui.js').then(async (ui) => {
+                let list = await getWorkspace('library_workspace') || [];
+                
+                if (ui.pendingLibAction.id) {
+                    // CẬP NHẬT TÊN
+                    let folder = list.find(f => f.id === ui.pendingLibAction.id);
+                    if (folder) folder.name = folderName;
+                    await saveWorkspace('library_workspace', list);
+                    showToast("✅ Đổi tên thành công!");
+                } else {
+                    // TẠO MỚI
+                    const newFolder = {
+                        id: 'folder_' + Date.now(),
+                        type: 'folder',
+                        name: folderName,
+                        parentId: state.currentLibraryFolderId 
+                    };
+                    list.push(newFolder);
+                    await saveWorkspace('library_workspace', list);
+                    showToast("✅ Tạo thư mục thành công!");
+                }
+                
+                closeModal('folder-action-modal');
+                ui.renderLibraryList();
+            });
+        };
+    }
+
+    // Nút Hủy / Xác nhận Lưu Ván Cờ Vào Thư Viện
+    const btnSaveLibCancel = document.getElementById('btn-save-lib-cancel');
+    if (btnSaveLibCancel) {
+        btnSaveLibCancel.onclick = () => {
+            closeModal('save-library-modal');
+            openModal('export-modal');
+        };
+    }
+
+    const btnSaveLibConfirm = document.getElementById('btn-save-lib-confirm');
+    if (btnSaveLibConfirm) {
+        btnSaveLibConfirm.onclick = async () => {
+            const rawFileName = document.getElementById('save-lib-filename').value.trim() || "TuongKyViet";
+            const targetFolderId = document.getElementById('save-lib-folder-select').value;
+            
+            closeModal('save-library-modal');
+            showLoading("Đang lưu vào thư viện...");
+            
+            try {
+                let vNode = getVschessNodeTree(state.rootNode);
+                const gameDataText = vschess.nodeToData_DhtmlXQ(vNode, state.currentGameInfo, false);
+                
+                const idKey = 'lib_' + Date.now();
+                await saveWorkspace(idKey, gameDataText); 
+                
+                let libraryList = await getWorkspace('library_workspace') || [];
+                libraryList.push({ 
+                    id: idKey, 
+                    type: 'file',
+                    name: rawFileName,
+                    parentId: targetFolderId 
+                });
+                
+                await saveWorkspace('library_workspace', libraryList);
+                
+                hideLoading();
+                showToast(`✅ Đã lưu "${rawFileName}" vào Thư viện thành công!`);
+            } catch(e) {
+                hideLoading(); 
+                showToast("❌ Có lỗi xảy ra khi lưu!"); 
+            }
+        };
+    }
+    // Nút Quay lại thư mục cha của LUYỆN NHỚ VÁN
+    const btnMemoBack = document.getElementById('btn-memo-back');
+    if (btnMemoBack) {
+        btnMemoBack.onclick = () => {
+            if (state.memoHistory.length > 0) {
+                state.currentMemoFolderId = state.memoHistory.pop();
+                import('./ui.js').then(ui => ui.renderMemorizeList());
+            }
+        };
+    }
+
+   // ==========================================
+    // CÁC SỰ KIỆN NÚT BẤM CHO CHỌN GIAO DIỆN (STYLE)
+    // ==========================================
+    let styleManifest = null;
+    let currentSelectionType = ''; // 'board' hoặc 'piece'
+    let tempSelectedStyleObj = null; // Chứa Object {name, path} đang click tạm
+    
+    // Nạp tên hiển thị ban đầu từ Path lưu trong State (Local Storage)
+    function getStyleNameFromPath(manifestList, path) {
+        if (!manifestList) return "Mặc Định";
+        const found = manifestList.find(item => item.path === path);
+        return found ? found.name : "Mặc Định";
+    }
+
+    async function loadStyleManifest() {
+        if (styleManifest) return styleManifest;
+        try {
+            const response = await fetch('style/manifest.json');
+            styleManifest = await response.json();
+            return styleManifest;
+        } catch (e) {
+            console.error("Lỗi khi tải style/manifest.json", e);
+            return { boards: [], pieces: [] };
+        }
+    }
+
+    async function openStyleModal(type) {
+        showLoading("Đang tải danh sách...");
+        const manifest = await loadStyleManifest();
+        hideLoading();
+
+        currentSelectionType = type;
+        const isBoard = (type === 'board');
+        
+        document.getElementById('style-select-title').innerText = isBoard ? "Chọn Bàn Cờ" : "Chọn Quân Cờ";
+        
+        const listData = isBoard ? manifest.boards : manifest.pieces;
+        const savedPath = isBoard ? state.appSettings.boardStyle : state.appSettings.pieceStyle;
+        
+        // Set temp ban đầu chính là Style đang dùng
+        tempSelectedStyleObj = listData.find(item => item.path === savedPath) || listData[0];
+
+        // Cập nhật Text ở ngoài Setting
+        const elText = document.getElementById(isBoard ? 'current-board-name' : 'current-piece-name');
+        if (elText) elText.innerText = tempSelectedStyleObj.name;
+
+        const container = document.getElementById('style-list-container');
+        container.innerHTML = '';
+
+        if (!listData || listData.length === 0) {
+            container.innerHTML = '<div style="text-align: center; color: #888; padding: 20px 0;">Không tìm thấy dữ liệu</div>';
+        } else {
+            listData.forEach(item => {
+                const btn = document.createElement('button');
+                btn.className = 'style-item-btn';
+                btn.innerText = item.name;
+
+                if (item.path === tempSelectedStyleObj.path) {
+                    btn.classList.add('style-item-active');
+                }
+
+                btn.onclick = () => {
+                    container.querySelectorAll('.style-item-btn').forEach(b => b.classList.remove('style-item-active'));
+                    btn.classList.add('style-item-active');
+                    tempSelectedStyleObj = item; // Nhớ lại Object (chứa cả name và path)
+                };
+
+                container.appendChild(btn);
+            });
+        }
+
+        import('./ui.js').then(ui => ui.openModal('style-select-modal'));
+    }
+
+    // Khởi tạo Text giao diện lúc F5 load trang
+    loadStyleManifest().then(manifest => {
+        const boardEl = document.getElementById('current-board-name');
+        if (boardEl) boardEl.innerText = getStyleNameFromPath(manifest.boards, state.appSettings.boardStyle);
+        
+        const pieceEl = document.getElementById('current-piece-name');
+        if (pieceEl) pieceEl.innerText = getStyleNameFromPath(manifest.pieces, state.appSettings.pieceStyle);
+    });
+
+    // Bắt sự kiện Click vào 2 Row
+    const rowBoardStyle = document.getElementById('row-board-style');
+    if (rowBoardStyle) {
+        rowBoardStyle.onclick = () => openStyleModal('board');
+        rowBoardStyle.onmouseenter = function() { this.style.backgroundColor = "#f5f5f5"; };
+        rowBoardStyle.onmouseleave = function() { this.style.backgroundColor = "transparent"; };
+    }
+
+    const rowPieceStyle = document.getElementById('row-piece-style');
+    if (rowPieceStyle) {
+        rowPieceStyle.onclick = () => openStyleModal('piece');
+        rowPieceStyle.onmouseenter = function() { this.style.backgroundColor = "#f5f5f5"; };
+        rowPieceStyle.onmouseleave = function() { this.style.backgroundColor = "transparent"; };
+    }
+
+    // Nút Hủy
+    const btnStyleCancel = document.getElementById('btn-style-cancel');
+    if (btnStyleCancel) {
+        btnStyleCancel.onclick = () => {
+            // Chỉ đóng Modal. Khi mở lại, hàm openStyleModal sẽ tự Reset màu UI dựa theo State gốc.
+            import('./ui.js').then(ui => ui.closeModal('style-select-modal'));
+        };
+    }
+
+    // Nút Xác nhận
+    const btnStyleConfirm = document.getElementById('btn-style-confirm');
+    if (btnStyleConfirm) {
+        btnStyleConfirm.onclick = () => {
+            import('./ui.js').then(ui => ui.closeModal('style-select-modal'));
+            
+            const isBoard = (currentSelectionType === 'board');
+            const savedPath = isBoard ? state.appSettings.boardStyle : state.appSettings.pieceStyle;
+
+            // KIỂM TRA ĐIỀU KIỆN 3: Nếu chọn trùng cái đang dùng thì bỏ qua không load
+            if (savedPath === tempSelectedStyleObj.path) return;
+
+            // ĐIỀU KIỆN 4: Hiện màn hình loading phủ đen tối thiểu 0.5s để chống chớp
+            showLoading("Đang áp dụng giao diện...");
+            
+            const startLoadTime = Date.now();
+
+            import('./board.js').then(boardModule => {
+                let loadPromise;
+
+                if (isBoard) {
+                    state.appSettings.boardStyle = tempSelectedStyleObj.path;
+                    loadPromise = boardModule.reloadBoardImage(tempSelectedStyleObj.path);
+                    const el = document.getElementById('current-board-name');
+                    if (el) el.innerText = tempSelectedStyleObj.name;
+                } else {
+                    state.appSettings.pieceStyle = tempSelectedStyleObj.path;
+                    loadPromise = boardModule.reloadPieceImages(tempSelectedStyleObj.path);
+                    const el = document.getElementById('current-piece-name');
+                    if (el) el.innerText = tempSelectedStyleObj.name;
+                }
+
+                // Lưu Setting vào Cache
+                storage.saveSystem(state.appSettings);
+
+                // Khi tải ảnh xong, kiểm tra xem đã qua 0.5s chưa. Nếu chưa thì chờ cho đủ
+                loadPromise.then(() => {
+                    const elapsed = Date.now() - startLoadTime;
+                    const remainingTime = Math.max(0, 500 - elapsed);
+                    
+                    setTimeout(() => {
+                        hideLoading();
+                        showToast(`Đã thay đổi ${isBoard ? "Bàn cờ" : "Quân cờ"} thành công!`);
+                    }, remainingTime);
+                });
+            });
+        };
+    }
 }

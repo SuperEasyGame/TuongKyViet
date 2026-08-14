@@ -9,6 +9,10 @@ import { handleSquareClick } from './game.js';
 export const imageCache = {}; 
 export let isImagesLoaded = false;
 
+// Đổi từ let sang export function để lấy State mới nhất
+let currentBoardPath = "style/1-mac_dinh";
+let currentPiecePath = "style/1-mac_dinh";
+
 const SHADOW_SCALE = 1.0;         // Kích thước bóng (1.05 = to hơn quân cờ 5%)
 const SHADOW_OFFSET_X_PCT = 0.05;  // Lệch sang phải 4% khi nằm im
 const SHADOW_OFFSET_Y_PCT = 0.1;  // Lệch xuống dưới 6% khi nằm im
@@ -17,15 +21,33 @@ const SELECTION_SCALE = 1.55;      // Ánh sáng dưới đáy quân cờ đang 
 const DOT_SCALE = 0.25;            // Chấm xanh nước đi hợp lệ & ăn quân (dot.webp)
 const FROM_SCALE = 0.4;            // Điểm xuất phát nước đi trước (from.webp)
 const TO_SCALE = 1.1;             // Điểm đến nước đi trước (to.webp)
-
+ 
 // Tải ảnh lên RAM
 export function preloadImages() {
     return new Promise((resolve) => {
+        // Cập nhật path từ State
+        const boardPath = state.appSettings.boardStyle || "style/1-mac_dinh";
+        const piecePath = state.appSettings.pieceStyle || "style/1-mac_dinh";
+        
+        const boardArea = document.getElementById('chess-board-area');
+        if (boardArea) {
+            boardArea.style.backgroundImage = `url('${boardPath}/board.webp')`;
+            boardArea.style.setProperty('--bg-image', `url('${boardPath}/board.webp')`);
+        }
+
+        document.querySelectorAll('.piece-palette img').forEach(imgTag => {
+            const pieceCode = imgTag.dataset.piece;
+            if (pieceCode) {
+                imgTag.src = `${piecePath}/${PIECE_MAP[pieceCode]}.webp`;
+            }
+        });
+
         const pieceKeys = Object.keys(PIECE_MAP);
-        const extraImages = ['shadow', 'dot', 'from', 'to', 'selection', 'blind_b', 'blind_w']; // Các ảnh hiệu ứng
+        const extraImages = ['shadow', 'dot', 'from', 'to', 'selection']; // ĐÃ RÚT board VÀ blind RA
+        const blindPieces = ['blind_b', 'blind_w']; 
         
         let loadedCount = 0;
-        const totalImages = pieceKeys.length + extraImages.length; 
+        const totalImages = pieceKeys.length + extraImages.length + blindPieces.length + 1; // +1 cho Board
 
         const checkDone = () => {
             loadedCount++;
@@ -35,20 +57,94 @@ export function preloadImages() {
             }
         };
 
-        // Tải ảnh các hiệu ứng (UI)
+        // Tải ảnh Bàn Cờ vào RAM
+        const imgBoard = new Image();
+        imgBoard.src = `${boardPath}/board.webp`;
+        imgBoard.onload = () => { imageCache['board'] = imgBoard; checkDone(); };
+        imgBoard.onerror = () => { checkDone(); };
+        
+        // Tải ảnh UI (bóng, chấm...)
         extraImages.forEach(imgName => {
             const img = new Image();
             img.src = `style/${imgName}.webp`;
             img.onload = () => { imageCache[imgName] = img; checkDone(); };
-            img.onerror = () => { console.error(`Lỗi tải ảnh: ${imgName}.webp`); checkDone(); };
+            img.onerror = () => { checkDone(); };
+        });
+        
+        // Tải ảnh Mù
+        blindPieces.forEach(key => {
+            const img = new Image();
+            img.src = `${piecePath}/${key}.webp`;
+            img.onload = () => { imageCache[key] = img; checkDone(); };
+            img.onerror = () => { checkDone(); };
         });
 
-        // Tải ảnh các quân cờ
+        // Tải ảnh Quân Cờ
         pieceKeys.forEach(key => {
             const img = new Image();
-            img.src = `style/${PIECE_MAP[key]}.webp`;
+            img.src = `${piecePath}/${PIECE_MAP[key]}.webp`;
             img.onload = () => { imageCache[key] = img; checkDone(); };
-            img.onerror = () => { console.error(`Lỗi tải ảnh quân cờ: ${img.src}`); checkDone(); };
+            img.onerror = () => { checkDone(); };
+        });
+    });
+}
+// HÀM TẢI LẠI RIÊNG BÀN CỜ (Dùng cho Setting)
+export function reloadBoardImage(boardPath) {
+    return new Promise((resolve) => {
+        const img = new Image();
+        img.src = `${boardPath}/board.webp`;
+        img.onload = () => { 
+            imageCache['board'] = img; 
+            
+            // Cập nhật cả thẻ Div chứa bàn cờ để đồng bộ ảnh
+            const boardArea = document.getElementById('chess-board-area');
+            if (boardArea) {
+                boardArea.style.backgroundImage = `url('${img.src}')`;
+                // Nếu bạn dùng Pseudo-element (::before) như trong CSS cũ thì phải gán bằng Custom Property
+                boardArea.style.setProperty('--bg-image', `url('${img.src}')`);
+            }
+            resolve(); 
+        };
+        img.onerror = () => { console.error(`Lỗi tải ảnh bàn cờ: ${img.src}`); resolve(); };
+    });
+}
+
+// HÀM TẢI LẠI RIÊNG QUÂN CỜ (Dùng cho Setting)
+export function reloadPieceImages(piecePath) {
+    return new Promise((resolve) => {
+        const pieceKeys = Object.keys(PIECE_MAP);
+        const extraPieces = ['blind_b', 'blind_w']; // Thêm 2 quân mù
+        
+        let loadedCount = 0;
+        const totalImages = pieceKeys.length + extraPieces.length; 
+
+        const checkDone = () => {
+            loadedCount++;
+            if (loadedCount === totalImages) resolve();
+        };
+
+        // Tải lại quân mù
+        extraPieces.forEach(key => {
+            const img = new Image();
+            img.src = `${piecePath}/${key}.webp`;
+            img.onload = () => { imageCache[key] = img; checkDone(); };
+            img.onerror = () => { console.error(`Lỗi tải: ${img.src}`); checkDone(); };
+        });
+
+        // Tải lại toàn bộ 14 quân cờ bình thường
+        pieceKeys.forEach(key => {
+            const img = new Image();
+            img.src = `${piecePath}/${PIECE_MAP[key]}.webp`;
+            img.onload = () => { imageCache[key] = img; checkDone(); };
+            img.onerror = () => { console.error(`Lỗi tải: ${img.src}`); checkDone(); };
+        });
+        
+        // ĐỒNG BỘ LUÔN KHAY XẾP QUÂN DƯỚI DOM (Editor)
+        document.querySelectorAll('.piece-palette img').forEach(imgTag => {
+            const pieceCode = imgTag.dataset.piece;
+            if (pieceCode) {
+                imgTag.src = `${piecePath}/${PIECE_MAP[pieceCode]}.webp`;
+            }
         });
     });
 }
