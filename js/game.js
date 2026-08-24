@@ -413,6 +413,31 @@ export function handleSquareClick(x, y, iccsPos) {
     }
 
     if (state.isEditMode) { handleEditSquareClick(iccsPos); return; }
+
+    // Lấy thông tin quân cờ tại ô vừa click ngay từ đầu
+    const pieceCode = state.currentSituation[vschess.i2s[iccsPos]];
+    // Kiểm tra xem đây có phải là quân cờ của phe ĐANG ĐẾN LƯỢT ĐI hay không
+    const isOwnPiece = pieceCode > 1 && (pieceCode >> 4) === state.currentSituation[0];
+
+    // =======================================================
+    // LOGIC XÓA MŨI TÊN KHI CLICK VÀO ĐẦU MŨI TÊN (ĐÍCH ĐẾN)
+    // =======================================================
+    // NẾU click vào quân của phe mình -> Bỏ qua phần này để ưu tiên chọn quân
+    // NẾU click vào ô trống hoặc quân địch -> Mới xét xem có trúng đầu mũi tên để xóa hay không
+    if (!isOwnPiece && state.customArrows && state.customArrows.length > 0) {
+        const initialArrowCount = state.customArrows.length;
+        
+        // Lọc bỏ những mũi tên có điểm đích (to) trùng với ô vừa click
+        state.customArrows = state.customArrows.filter(arrow => arrow.to !== iccsPos);
+        
+        // Nếu số lượng mũi tên giảm đi -> Nghĩa là vừa xóa thành công 1 (hoặc nhiều) mũi tên
+        if (state.customArrows.length < initialArrowCount) {
+            import('./board.js').then(m => m.renderBoardFull(state.currentSituation));
+            return; // Hấp thụ cú Click, không đi cờ
+        }
+    }
+    // =======================================================
+
     if (state.isAnimating) return; 
     
     const isRedTurn = state.currentNode.fen.split(" ")[1] === "w";
@@ -458,23 +483,21 @@ export function handleSquareClick(x, y, iccsPos) {
                 }
             }
             
-            // Xóa mũi tên nếu người chơi thực hiện thành công nước đi
+            // Đi cờ thành công -> Xóa hết mũi tên
             state.customArrows = []; 
             executeMove(moveCommand); 
             return; 
         }
     }
     
-    const pieceCode = state.currentSituation[vschess.i2s[iccsPos]];
-    // KIỂM TRA ĐÚNG QUÂN CỦA PHE MÌNH MỚI CHO CHỌN VÀ XÓA MŨI TÊN
-    if (pieceCode > 1 && (pieceCode >> 4) === state.currentSituation[0]) {
+    // SỬ DỤNG LẠI BIẾN isOwnPiece ĐÃ KHAI BÁO Ở TRÊN
+    if (isOwnPiece) {
         state.selectedSquare = { x, y, iccs: iccsPos };
         state.legalMoves = getStrictLegalMoves(state.currentSituation, state.currentNode.fen).filter(m => m.startsWith(iccsPos));
         
-        // CHỈ XÓA MŨI TÊN KHI NGƯỜI CHƠI BẤM VÀO ĐÚNG QUÂN CỜ HỢP LỆ
+        // Chọn đúng quân phe mình -> Xóa hết mũi tên
         state.customArrows = [];
     } else {
-        // Bấm ra ngoài khoảng không hoặc bấm vào quân địch -> Hủy chọn nhưng GIỮ NGUYÊN MŨI TÊN
         state.selectedSquare = null;
         state.legalMoves = [];
     }
@@ -1040,6 +1063,7 @@ export function undoVsBot() {
 
 export function instantJumpToNode(targetNode) {
     state.pvLines = [];
+    state.customArrows = [];
     state.currentNode = targetNode; 
     ensureNodeData(state.currentNode);
     state.currentSituation = vschess.fenToSituation(state.currentNode.fen); 
