@@ -111,6 +111,7 @@ body {
     -webkit-user-select: none;
     user-select: none;
     -webkit-tap-highlight-color: transparent; /* Chống nháy xanh khi bấm trên Mobile */
+    touch-action: none;
 }
 
 #nav-bar { 
@@ -950,4 +951,41 @@ body.mode-puzzle #move-list-container { pointer-events: none; }
     background: #e6f9ed !important;
     border-color: #008a3e !important;
     color: #008a3e !important;
+}
+
+/* =========================================================
+   TRẠNG THÁI ĐANG CHẠY BIỂU ĐỒ PHÂN TÍCH
+   ========================================================= */
+/* Làm mờ toàn bộ nút trên Toolbar NGOẠI TRỪ nút Biểu Đồ */
+body.chart-running #toolbar .tool-btn-outer:not(#btn-chart) {
+    opacity: 0.5;
+    pointer-events: none !important;
+}
+
+/* Làm mờ thanh điều hướng Nav Bar (Tiến, lùi, play) - CHỈ KHÓA KHI ĐANG VẼ */
+body.chart-drawing #nav-bar {
+    opacity: 0.5;
+    pointer-events: none !important;
+}
+
+/* Đổi màu Nút Biểu đồ đang được bật cho nổi bật */
+body.chart-running #btn-chart {
+    border-color: #1a73e8 !important;
+    box-shadow: 0 0 6px rgba(26, 115, 232, 0.6);
+    background-color: #e8f0fe;
+}
+body.chart-running #btn-chart svg {
+    stroke: #1a73e8;
+}
+
+/* Khóa các Tab tiêu đề, cloud book, ghi chú... chỉ cho phép ở lại Tab Phân tích */
+body.chart-running .ai-tab-btn:not([data-tab="pikafish"]) {
+    opacity: 0.4;
+    pointer-events: none !important;
+}
+
+/* Khóa lịch sử nước đi - CHỈ KHÓA KHI ĐANG VẼ */
+body.chart-drawing #move-list-container {
+    opacity: 0.6;
+    pointer-events: none !important;
 }

@@ -41,6 +41,7 @@ function setupStepper(stateKey, inputId, minusId, plusId, min, defaultMax, step,
     if (targetType === 'ai') targetObj = state.aiSettings;
     else if (targetType === 'app') targetObj = state.appSettings;
     else if (targetType === 'bot') targetObj = state.vsBotSettings;
+    else if (targetType === 'chart') targetObj = state.chartSettings; 
 
     if (targetObj[stateKey] !== undefined) {
         input.value = targetObj[stateKey];
@@ -135,6 +136,8 @@ async function switchMode(newMode, customFen = START_FEN) {
     state.aiPlaysRed = false;
     state.aiPlaysBlack = false;
 
+    state.customArrows = []; 
+
     const btnAnalyze = document.getElementById('btn-analyze');
     if (btnAnalyze) btnAnalyze.classList.remove('tool-active');
 
@@ -170,6 +173,34 @@ async function switchMode(newMode, customFen = START_FEN) {
     }, 50);
 }
 
+// Hàm mở khóa điều hướng khi vẽ xong (Giữ nguyên biểu đồ hiển thị)
+export function finishChartDrawing() {
+    state.isChartDrawing = false;
+    document.body.classList.remove('chart-drawing');
+    
+    // Cưỡng chế dừng Động cơ Pikafish đang vẽ biểu đồ dở dang
+    import('./engine.js').then(engine => engine.forceStopEngine());
+    
+    showToast("Phân tích biểu đồ hoàn tất! Bạn có thể xem lại các nước cờ.");
+}
+
+// Hàm thoát hoàn toàn chế độ biểu đồ (Trở về như ban đầu)
+export function exitChartMode() {
+    state.isChartRunning = false;
+    state.isChartDrawing = false;
+    document.body.classList.remove('chart-running', 'chart-drawing');
+    
+    const btnChart = document.getElementById('btn-chart');
+    if (btnChart) btnChart.classList.remove('tool-active');
+    
+    import('./engine.js').then(engine => engine.forceStopEngine());
+    
+    // Trả lại UI Tab Phân tích ban đầu
+    import('./chart.js').then(chart => chart.closeChartUI());
+    
+    showToast("Đã tắt chế độ biểu đồ!");
+}
+
 export function initEvents() {
 
     document.addEventListener('click', (e) => {
@@ -188,6 +219,14 @@ export function initEvents() {
             if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) {
                 e.preventDefault();
                 showToast("Bạn không thể tiến/lùi cờ trong chế độ Đấu Máy!");
+                return;
+            }
+        }
+
+        if (state.isChartDrawing) {
+            if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) {
+                e.preventDefault();
+                showToast("Đang vẽ biểu đồ, không thể thao tác!");
                 return;
             }
         }
@@ -927,6 +966,8 @@ export function initEvents() {
     setupStepper('cloudBookLimit', 'input-cloudlimit', 'btn-cloudlimit-minus', 'btn-cloudlimit-plus', 1, 50, 1, false, 'app');
     setupStepper('level', 'input-botlevel', 'btn-botlevel-minus', 'btn-botlevel-plus', 1, 10, 1, false, 'bot');
     setupStepper('level', 'input-setup-level', 'btn-setup-level-minus', 'btn-setup-level-plus', 1, 10, 1, false, 'bot');
+    setupStepper('depth', 'input-chart-depth', 'btn-chart-depth-minus', 'btn-chart-depth-plus', 1, 60, 1, false, 'chart');
+    setupStepper('time', 'input-chart-time', 'btn-chart-time-minus', 'btn-chart-time-plus', 1, 60, 1, false, 'chart');
     
     const inputBotStyle = document.getElementById('input-bot-style');
     if(inputBotStyle) {
@@ -1001,6 +1042,12 @@ export function initEvents() {
     const btnFlip = document.getElementById('btn-flip');
     if(btnFlip) {
         btnFlip.onclick = (e) => {
+            // Khóa lật bàn cờ khi đang mở chế độ biểu đồ
+            if (state.isChartRunning) {
+                import('./ui.js').then(ui => ui.showToast("Vui lòng tắt Biểu đồ phân tích trước khi lật bàn cờ!"));
+                return;
+            }
+            
             state.isBoardFlipped = !state.isBoardFlipped; 
             if(state.isBoardFlipped) { 
                 document.getElementById('chess-board-area').classList.add('board-flipped'); btnFlip.classList.add('tool-active');
@@ -2315,6 +2362,70 @@ export function initEvents() {
                         showToast(`Đã thay đổi ${isBoard ? "Bàn cờ" : "Quân cờ"} thành công!`);
                     }, remainingTime);
                 });
+            });
+        };
+    }
+
+    // ==========================================
+    // CÁC SỰ KIỆN CHO TÍNH NĂNG BIỂU ĐỒ PHÂN TÍCH
+    // ==========================================
+   // 1. Nút bấm trên Toolbar
+    const btnChart = document.getElementById('btn-chart');
+    if (btnChart) {
+        btnChart.onclick = () => {
+            // NẾU ĐANG CHẠY MÀ BẤM NÚT NÀY -> TẮT HOÀN TOÀN BIỂU ĐỒ
+            if (state.isChartRunning) {
+                exitChartMode();
+            } else {
+                openModal('chart-setup-modal');
+            }
+        };
+    }
+
+    // 2. Nút Hủy
+    const btnChartCancel = document.getElementById('btn-chart-cancel');
+    if (btnChartCancel) {
+        btnChartCancel.onclick = () => { closeModal('chart-setup-modal'); };
+    }
+
+    // 3. Nút Xác nhận
+    const btnChartConfirm = document.getElementById('btn-chart-confirm');
+    if (btnChartConfirm) {
+        btnChartConfirm.onclick = () => {
+            closeModal('chart-setup-modal');
+
+            state.customArrows = [];
+            
+            const pikaTab = document.querySelector('.ai-tab-btn[data-tab="pikafish"]');
+            if (pikaTab) pikaTab.click();
+
+            import('./game.js').then(game => {
+                game.forceStopAIPlayers(); 
+                if (state.isAutoPlaying) game.toggleAutoPlay();
+            });
+
+            const btnAnalyze = document.getElementById('btn-analyze');
+            if (btnAnalyze) {
+                btnAnalyze.classList.remove('tool-active');
+                state.isAnalyzing = false;
+            }
+
+            import('./engine.js').then(engine => {
+                // ÉP DỪNG ĐỘNG CƠ ĐANG CHẠY PHÂN TÍCH
+                engine.forceStopEngine(); 
+                
+                // GIẢI QUYẾT LỖI CHAIN REACTION: Đợi 300ms cho AI xả hết rác "bestmove" cũ ra ngoài
+                setTimeout(() => {
+                    state.isChartRunning = true;
+                    state.isChartDrawing = true;
+                    document.body.classList.add('chart-running', 'chart-drawing'); 
+                    
+                    if (btnChart) btnChart.classList.add('tool-active');
+                    showToast(`Đang vẽ biểu đồ tự động...`);
+                    
+                    // LÚC NÀY MỚI BẮT ĐẦU CHẠY BIỂU ĐỒ
+                    engine.startChartAnalysisProcess();
+                }, 300);
             });
         };
     }

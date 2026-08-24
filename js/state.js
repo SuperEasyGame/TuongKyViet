@@ -71,6 +71,7 @@ export const state = {
     pendingAIMove: null,
     
     pvLines: [],
+    customArrows: [],
 
     puzzleHistory: [],
     currentPuzzleFolder: { path: 'data', name: '' },
@@ -95,6 +96,11 @@ export const state = {
     appSettings: savedSystem,
     aiSettings: savedAnalysis,
     vsBotSettings: savedVsBot,
+
+    chartSettings: { depth: 20, time: 2 },
+    isChartRunning: false,
+    isChartDrawing: false,
+    chartData: [],
 
     isEditMode: false,
     selectedPalettePiece: null,

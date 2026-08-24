@@ -360,7 +360,7 @@ export async function initGame(fenString = START_FEN, loadFromStorage = false) {
     loadGameFromList(0); // Bơm ván trắng này lên RAM
 
     state.lastMove = null; state.pendingAIMove = null; state.isAnimating = false; 
-    state.pvLines = []; clearArrow(); state.hasAutoSwitchedToAnalyze = false;
+    state.pvLines = []; clearArrow(); state.customArrows = []; state.hasAutoSwitchedToAnalyze = false;
     
     syncNavbarWidth(); applyAutoBoardFlip();
 
@@ -372,7 +372,7 @@ export async function initGame(fenString = START_FEN, loadFromStorage = false) {
     state.currentNode = state.rootNode; state.currentStepNum = 0; 
     state.currentSituation = vschess.fenToSituation(fenString); 
     state.lastMove = null; state.pendingAIMove = null; state.isAnimating = false; 
-    state.pvLines = []; clearArrow(); state.hasAutoSwitchedToAnalyze = false;
+    state.pvLines = []; clearArrow(); state.customArrows = []; state.hasAutoSwitchedToAnalyze = false;
     state.selectedSquare = null; state.legalMoves = [];
     
     const commentBox = document.getElementById('comment-box');
@@ -404,6 +404,14 @@ export async function initGame(fenString = START_FEN, loadFromStorage = false) {
 }
 
 export function handleSquareClick(x, y, iccsPos) {
+    if (state.isChartDrawing) {
+        import('./ui.js').then(ui => ui.showToast("Đang vẽ biểu đồ, không thể đi cờ!"));
+        return;
+    } else if (state.isChartRunning) {
+        import('./ui.js').then(ui => ui.showToast("Vui lòng tắt chế độ Biểu đồ trước khi đi cờ mới!"));
+        return;
+    }
+
     if (state.isEditMode) { handleEditSquareClick(iccsPos); return; }
     if (state.isAnimating) return; 
     
@@ -414,12 +422,8 @@ export function handleSquareClick(x, y, iccsPos) {
         if (isBotTurn) return; 
     } 
     else if (state.appMode === 'memorize') {
-        // TRONG CHẾ ĐỘ LUYỆN NHỚ
-        // Nếu chọn "Luyện cả 2 bên", state.aiPlaysRed = false và state.aiPlaysBlack = false -> Lệnh này tự động cho phép người chơi đi cả 2 phe!
         const isBotTurn = (state.aiPlaysRed && isRedTurn) || (state.aiPlaysBlack && !isRedTurn);
-        if (isBotTurn) {
-            return; 
-        }
+        if (isBotTurn) return; 
     } 
     else {
         if ((isRedTurn && state.aiPlaysRed) || (!isRedTurn && state.aiPlaysBlack)) return;
@@ -430,16 +434,11 @@ export function handleSquareClick(x, y, iccsPos) {
     if (state.selectedSquare) {
         const moveCommand = state.selectedSquare.iccs + iccsPos; 
         if (state.legalMoves.includes(moveCommand)) { 
-            
-            // TRONG CHẾ ĐỘ LUYỆN NHỚ: CHỈ CHO PHÉP ĐI NƯỚC CÓ TRONG BÀI
             if (state.appMode === 'memorize') {
                 let isValidMemory = false;
-                
-                // NẾU LÀ NHÁNH CHÍNH -> Chỉ chấp nhận nước đi đầu tiên trong mảng children (index = 0)
                 if (state.memorizeSettings.path === 'main') {
                     isValidMemory = state.currentNode.children.length > 0 && state.currentNode.children[0].moveCommand === moveCommand;
                 } else {
-                    // Nếu là tự chọn/random -> Chấp nhận mọi nhánh có trong dữ liệu
                     isValidMemory = state.currentNode.children.some(c => c.moveCommand === moveCommand);
                 }
 
@@ -447,7 +446,6 @@ export function handleSquareClick(x, y, iccsPos) {
                     if (isRedTurn) state.memoMistakesRed++;
                     else state.memoMistakesBlack++;
                     updateBlindTurnUI();
-
                     const errMsg = state.memorizeSettings.path === 'main' 
                                  ? "❌ Nước đi sai! Bạn đang ở chế độ chỉ luyện Nhánh Chính." 
                                  : "❌ Nước đi sai! Hãy chọn nước đi có trong bài học.";
@@ -460,16 +458,23 @@ export function handleSquareClick(x, y, iccsPos) {
                 }
             }
             
+            // Xóa mũi tên nếu người chơi thực hiện thành công nước đi
+            state.customArrows = []; 
             executeMove(moveCommand); 
             return; 
         }
     }
     
     const pieceCode = state.currentSituation[vschess.i2s[iccsPos]];
+    // KIỂM TRA ĐÚNG QUÂN CỦA PHE MÌNH MỚI CHO CHỌN VÀ XÓA MŨI TÊN
     if (pieceCode > 1 && (pieceCode >> 4) === state.currentSituation[0]) {
         state.selectedSquare = { x, y, iccs: iccsPos };
         state.legalMoves = getStrictLegalMoves(state.currentSituation, state.currentNode.fen).filter(m => m.startsWith(iccsPos));
+        
+        // CHỈ XÓA MŨI TÊN KHI NGƯỜI CHƠI BẤM VÀO ĐÚNG QUÂN CỜ HỢP LỆ
+        state.customArrows = [];
     } else {
+        // Bấm ra ngoài khoảng không hoặc bấm vào quân địch -> Hủy chọn nhưng GIỮ NGUYÊN MŨI TÊN
         state.selectedSquare = null;
         state.legalMoves = [];
     }
@@ -801,6 +806,7 @@ export function triggerMemorizeBot() {
 
 export function executeMove(moveCommand, isJump = false, isReverse = false) {
     state.pvLines = [];
+    state.customArrows = [];
     const varContainer = document.getElementById('memo-variation-container');
     if (varContainer) varContainer.style.display = 'none';
     const useAnim = state.appSettings.animation;
@@ -894,6 +900,7 @@ export function executeMove(moveCommand, isJump = false, isReverse = false) {
 
 export function executeForwardStep(targetNode) {
     state.pvLines = [];
+    state.customArrows = [];
     const varContainer = document.getElementById('memo-variation-container');
     if (varContainer) varContainer.style.display = 'none';
     const useAnim = state.appSettings.animation;
@@ -948,6 +955,7 @@ export function executeForwardStep(targetNode) {
 
 export function executeReverseStep(nodeToReverse) {
     state.pvLines = [];
+    state.customArrows = [];
     const useAnim = state.appSettings.animation;
     if (useAnim) state.isAnimating = true;
     updateVsBotToolButtons();

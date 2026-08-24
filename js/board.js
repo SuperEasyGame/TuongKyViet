@@ -155,6 +155,12 @@ let canvas, ctx;
 let boardRect = { width: 0, height: 0 };
 let pieceSize = 0;
 let isRenderLoopRunning = false;
+
+let isPointerDown = false;
+let dragStartLogic = null;
+let currentDragLogic = null;
+let preventClick = false;
+
 export let animState = null;
 
 // Hàm kích hoạt Animation trượt cờ
@@ -187,7 +193,20 @@ export function initCanvas() {
     window.addEventListener('orientationchange', () => setTimeout(resizeCanvas, 200));
     
     resizeCanvas();
-    canvas.addEventListener('click', handleCanvasClick);
+    
+    // BẮT SỰ KIỆN KÉO THẢ VẼ MŨI TÊN (Hỗ trợ cả Chuột và Cảm ứng)
+    canvas.addEventListener('pointerdown', handlePointerDown);
+    canvas.addEventListener('pointermove', handlePointerMove);
+    canvas.addEventListener('pointerup', handlePointerUp);
+    canvas.addEventListener('pointercancel', handlePointerUp);
+    
+    canvas.addEventListener('click', (e) => {
+        if (preventClick) {
+            preventClick = false;
+            return;
+        }
+        handleCanvasClick(e);
+    });
     
     if (!isRenderLoopRunning) {
         isRenderLoopRunning = true;
@@ -198,54 +217,32 @@ export function initCanvas() {
 function resizeCanvas() {
     if (!canvas) return;
     const parent = document.getElementById('chess-board-area');
-    
-    // ĐÃ SỬA: Dùng offsetWidth thay vì getBoundingClientRect()
-    // Để lấy kích thước gốc chưa bị ảnh hưởng bởi CSS transform: scale()
     const trueWidth = parent.offsetWidth;
     const trueHeight = parent.offsetHeight;
-    
     boardRect = { width: trueWidth, height: trueHeight };
-
     const dpr = window.devicePixelRatio || 1;
     
     canvas.width = trueWidth * dpr;
     canvas.height = trueHeight * dpr;
-    
-    // ĐÃ SỬA: Canvas luôn tự động fill đầy thẻ cha 100%
     canvas.style.width = `100%`;
     canvas.style.height = `100%`;
-    
     ctx.scale(dpr, dpr);
-    
-    // Chỉnh kích thước quân cờ (bạn có thể đổi lại 0.1 nếu thấy 0.088 hơi nhỏ)
     pieceSize = trueWidth * 0.1; 
 }
 
-// Raycasting: Tính toán tọa độ Click bằng TỶ LỆ PHẦN TRĂM (%)
-function handleCanvasClick(event) {
-    if (!boardRect || boardRect.width === 0) return;
-    
-    // Lấy khung hiển thị thực tế trên màn hình
+// Hàm tính tọa độ Logic (0-8, 0-9) từ Event Chuột/Cảm ứng
+function getLogicPosFromEvent(event) {
     const rect = canvas.getBoundingClientRect();
-    
-    // ĐÃ SỬA: Tính ra % vị trí con trỏ chuột trên thẻ Canvas (từ 0.0 đến 1.0)
-    // Việc dùng % giúp Click luôn chính xác dù CSS có scale hay zoom bao nhiêu đi nữa
     const percentX = (event.clientX - rect.left) / rect.width;
     const percentY = (event.clientY - rect.top) / rect.height;
 
-    // Tỷ lệ lề của bàn cờ Tượng Kỳ (7% chiều ngang, 6.5% chiều dọc)
     const paddingXPercent = 0.07;
     const paddingYPercent = 0.065;
-    
-    // Không gian lưới chứa các đường kẻ
     const gridWidthPercent = 1 - (paddingXPercent * 2);
     const gridHeightPercent = 1 - (paddingYPercent * 2);
-    
-    // Kích thước 1 ô cờ tính bằng %
     const cellXPercent = gridWidthPercent / 8;
     const cellYPercent = gridHeightPercent / 9;
 
-    // Quy đổi % ra tọa độ logic (0-8 cho X, 0-9 cho Y)
     let logicX = Math.round((percentX - paddingXPercent) / cellXPercent);
     let logicY = Math.round((percentY - paddingYPercent) / cellYPercent);
 
@@ -253,6 +250,65 @@ function handleCanvasClick(event) {
         logicX = 8 - logicX;
         logicY = 9 - logicY;
     }
+    return { logicX, logicY };
+}
+
+// --- LOGIC KÉO THẢ MŨI TÊN ---
+function handlePointerDown(e) {
+    if (state.isEditMode || state.isChartRunning || state.isChartDrawing) return;
+    if (state.selectedSquare !== null) return; // Không cho vẽ khi đang click chọn quân
+
+    const { logicX, logicY } = getLogicPosFromEvent(e);
+    if (logicX < 0 || logicX > 8 || logicY < 0 || logicY > 9) return;
+    
+    canvas.setPointerCapture(e.pointerId);
+    isPointerDown = true;
+    dragStartLogic = { x: logicX, y: logicY };
+    currentDragLogic = null;
+    preventClick = false;
+}
+
+function handlePointerMove(e) {
+    if (!isPointerDown) return;
+    const { logicX, logicY } = getLogicPosFromEvent(e);
+    if (logicX < 0 || logicX > 8 || logicY < 0 || logicY > 9) return;
+
+    if (logicX !== dragStartLogic.x || logicY !== dragStartLogic.y) {
+        currentDragLogic = { x: logicX, y: logicY };
+        preventClick = true; // Đánh dấu đã kéo thả, sẽ không tính là lệnh Click chọn quân
+    } else {
+        currentDragLogic = null;
+    }
+}
+
+function handlePointerUp(e) {
+    if (!isPointerDown) return;
+    isPointerDown = false;
+    canvas.releasePointerCapture(e.pointerId);
+    
+    if (currentDragLogic) {
+        const fromIccs = vschess.b2i[dragStartLogic.y * 9 + dragStartLogic.x];
+        const toIccs = vschess.b2i[currentDragLogic.y * 9 + currentDragLogic.x];
+        
+        if (!state.customArrows) state.customArrows = [];
+        
+        // Nếu kéo trùng mũi tên đã có -> Xóa nó đi (Toggle)
+        const existingIdx = state.customArrows.findIndex(a => a.from === fromIccs && a.to === toIccs);
+        if (existingIdx !== -1) {
+            state.customArrows.splice(existingIdx, 1);
+        } else {
+            state.customArrows.push({ from: fromIccs, to: toIccs });
+        }
+    }
+    
+    dragStartLogic = null;
+    currentDragLogic = null;
+}
+
+// --- LOGIC CLICK CHỌN QUÂN BÌNH THƯỜNG ---
+function handleCanvasClick(event) {
+    if (!boardRect || boardRect.width === 0) return;
+    const { logicX, logicY } = getLogicPosFromEvent(event);
 
     if (logicX < 0 || logicX > 8 || logicY < 0 || logicY > 9) return;
     const boardNum = logicY * 9 + logicX;
@@ -287,8 +343,73 @@ function renderLoop() {
     drawSelectedPiece();         // <--- VẼ QUÂN ĐANG CHỌN PHÁT SÁNG NỔI LÊN TRÊN
     drawLegalMoveDots();         // Vẽ chấm xanh nước đi
     drawBestMoveArrowCanvas();   // Vẽ mũi tên AI
+    drawCustomArrowsCanvas();
 
     requestAnimationFrame(renderLoop);
+}
+
+// --- HÀM VẼ MŨI TÊN DO NGƯỜI DÙNG TỰ KÉO THẢ ---
+function drawCustomArrowsCanvas() {
+    const drawSingleArrow = (fromIccs, toIccs, color, rank) => {
+        const fXY = vschess.i2b[fromIccs];
+        const tXY = vschess.i2b[toIccs];
+        const p1 = getCanvasCoords(fXY % 9, Math.floor(fXY / 9));
+        const p2 = getCanvasCoords(tXY % 9, Math.floor(tXY / 9));
+
+        const dx = p2.cx - p1.cx;
+        const dy = p2.cy - p1.cy;
+        const angle = Math.atan2(dy, dx);
+        const distance = Math.sqrt(dx * dx + dy * dy);
+
+        const headLength = pieceSize * 0.3;      
+        const headWidth = pieceSize * 0.45;       
+        const tailStartWidth = pieceSize * 0.03; 
+        const tailEndWidth = pieceSize * 0.2;   
+
+        ctx.save();
+        ctx.translate(p1.cx, p1.cy);
+        ctx.rotate(angle);
+
+        ctx.beginPath();
+        ctx.moveTo(0, tailStartWidth / 2);                    
+        ctx.lineTo(distance - headLength, tailEndWidth / 2);  
+        ctx.lineTo(distance - headLength, headWidth / 2);     
+        ctx.lineTo(distance, 0);                              
+        ctx.lineTo(distance - headLength, -headWidth / 2);    
+        ctx.lineTo(distance - headLength, -tailEndWidth / 2); 
+        ctx.lineTo(0, -tailStartWidth / 2);                   
+        ctx.closePath();
+
+        ctx.fillStyle = color;
+        ctx.fill();       
+        ctx.restore(); 
+
+        if (rank !== null && rank !== "") {
+            const textOffset = headLength * 0.65;
+            const textX = p2.cx - Math.cos(angle) * textOffset;
+            const textY = p2.cy - Math.sin(angle) * textOffset;
+
+            ctx.fillStyle = "white"; 
+            ctx.font = `bold ${pieceSize * 0.2}px Arial`;
+            ctx.textAlign = "center"; 
+            ctx.textBaseline = "middle";
+            ctx.fillText(rank, textX, textY + 1);
+        }
+    };
+
+    // Vẽ các mũi tên tĩnh đã lưu trong mảng (Màu xanh dương Hex #1a73e8)
+    if (state.customArrows && state.customArrows.length > 0) {
+        state.customArrows.forEach((arrow, index) => {
+            drawSingleArrow(arrow.from, arrow.to, "#1a73e8bd", index + 1); 
+        });
+    }
+
+    // Vẽ mũi tên mờ ảo ĐANG TRONG QUÁ TRÌNH KÉO
+    if (isPointerDown && dragStartLogic && currentDragLogic) {
+        const fromIccs = vschess.b2i[dragStartLogic.y * 9 + dragStartLogic.x];
+        const toIccs = vschess.b2i[currentDragLogic.y * 9 + currentDragLogic.x];
+        drawSingleArrow(fromIccs, toIccs, "#1a73e8bd", (state.customArrows ? state.customArrows.length + 1 : 1));
+    }
 }
 
 // Các hàm Render Phụ trợ
@@ -626,8 +747,21 @@ export function renderMoveHistory() {
         btn.onclick = () => {
             if (state.isAutoPlaying) toggleAutoPlay(); 
             if (i === 0) { forceStopAIPlayers(); jumpToNode(state.rootNode); return; }
-            if (node !== state.currentNode) jumpToNode(node); 
-            else if (node.parent && node.parent.children.length > 1) openModal('variation-modal');
+            
+            if (node !== state.currentNode) {
+                // Nhảy đến nước cờ khác (Bình thường)
+                jumpToNode(node); 
+            } 
+            else if (node.parent && node.parent.children.length > 1) {
+                // Nếu click vào chính nước cờ đang đứng và nó có biến hóa:
+                // -> CHẶN LẠI NẾU ĐANG BẬT BIỂU ĐỒ
+                if (state.isChartRunning) {
+                    return;
+                }
+                
+                // Mở bảng chọn biến nếu không bật biểu đồ
+                openModal('variation-modal');
+            }
         };
         container.appendChild(btn);
     }
@@ -637,4 +771,8 @@ export function renderMoveHistory() {
     }, 50); 
     const commentBox = document.getElementById('comment-box');
     if (commentBox) commentBox.value = state.currentNode.comment || "";
+
+    if (state.isChartRunning && !state.isChartDrawing) {
+        import('./chart.js').then(chart => chart.refreshChartUI());
+    }
 }

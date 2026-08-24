@@ -18,9 +18,9 @@ Do dự án có sử dụng tệp bỏ qua `.gitignore` để không đưa thư 
 
 ## 🚀 Hướng dẫn Cài đặt & Khởi chạy
 
+### Bước 1: Tải mã nguồn về máy
 Bạn có thể clone dự án bằng Git hoặc tải file `.zip` từ GitHub và giải nén.
 ```bash
-Bước 1: Tải dự án về máy
 git clone https://github.com/SuperEasyGame/TuongKyViet.git
 Bước 2: Cài đặt Node.js
 Nếu máy tính của bạn chưa có Node.js, hãy làm theo các bước sau:

@@ -75,6 +75,10 @@
                 <div class="tool-btn-outer hide-on-edit hide-on-vsbot hide-on-blind hide-on-puzzle" id="btn-go-instant" title="Đi ngay">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#000000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="icon tool-btn"><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/></svg>
                 </div>
+                <!-- NÚT BIỂU ĐỒ MỚI THÊM VÀO ĐÂY -->
+                <div class="tool-btn-outer hide-on-edit hide-on-vsbot hide-on-blind hide-on-puzzle" id="btn-chart" title="Biểu đồ phân tích">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon tool-btn lucide lucide-chart-no-axes-combined-icon lucide-chart-no-axes-combined"><path d="M12 16v5"/><path d="M16 14.639V21"/><path d="M20 10.656V21"/><path d="m22 3-8.646 8.646a.5.5 0 0 1-.708 0L9.354 8.354a.5.5 0 0 0-.707 0L2 15"/><path d="M4 18.463V21"/><path d="M8 14.656V21"/></svg>
+                </div>
                 <div class="tool-btn-outer" id="btn-flip" title="Lật bàn cờ">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#000000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="icon tool-btn"><path d="m17 3-5 5-5-5h10"/><path d="m17 21-5-5-5 5h10"/><path d="M4 12H2"/><path d="M10 12H8"/><path d="M16 12h-2"/><path d="M22 12h-2"/></svg>
                 </div>
@@ -165,9 +169,20 @@
                                 <div id="score-bar-fill" style="width: 50%;"></div>
                                 <span id="score-text">0.00</span>
                             </div>
+
                             <!-- Vùng chứa danh sách MultiPV (Được Render bằng JS) -->
                             <div id="multipv-list-container">
                                 <div style="text-align: center; color: #888; margin-top: 10px;">Chưa có dữ liệu phân tích</div>
+                            </div>
+
+                            <!-- KHUNG CHỨA BIỂU ĐỒ (Chỉ hiện khi vẽ biểu đồ) -->
+                            <div id="chart-wrapper" style="display: none; width: 100%; flex: 1; min-height: 200px; position: relative; margin-top: 10px; border-radius: 6px; border: 1px solid #ddd; background: #fffdf0; overflow: hidden;">
+                                <!-- Lớp cuộn ngang chứa đường biểu đồ -->
+                                <div id="chart-container" style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; overflow-x: auto; overflow-y: hidden; box-sizing: border-box;">
+                                    <canvas id="analysis-chart"></canvas>
+                                </div>
+                                <!-- Lớp tĩnh chứa các con số trục Y cố định bên trái -->
+                                <canvas id="y-axis-canvas" style="position: absolute; top: 0; left: 0; height: 100%; background: #fffdf0; border-right: 1px solid #e0e0e0; box-shadow: 2px 0 5px rgba(0,0,0,0.05); z-index: 10;"></canvas>
                             </div>
                         </div>
 
@@ -188,6 +203,7 @@
                                 <!-- Các nút sẽ được JS chèn vào đây -->
                             </div>
                         </div>
+                        
                         <div class="ai-content" id="tab-comment" style="display:none; padding: 0;">
                             <textarea id="comment-box" maxlength="1000" placeholder="Nhập ghi chú cho nước cờ này... (Tối đa 1000 ký tự)"></textarea>
                         </div>
@@ -1063,6 +1079,48 @@
             <div style="display: flex; border-top: 1px solid #eee;">
                 <button class="modal-btn-half" id="btn-style-cancel" style="color: #666; border-right: 1px solid #eee;">Hủy</button>
                 <button class="modal-btn-half" id="btn-style-confirm" style="color: #008a3e; font-weight: bold;">Xác Nhận</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL THIẾT LẬP BIỂU ĐỒ PHÂN TÍCH -->
+    <div id="chart-setup-modal" class="modal-overlay">
+        <div class="modal-content" style="width: 320px;">
+            <div class="modal-header" style="justify-content: center; font-size: 18px; color: #333;">
+                Thiết Lập Biểu Đồ
+            </div>
+            
+            <div class="modal-body settings-body" style="padding: 0;">
+                
+                <div class="settings-row">
+                    <div class="settings-label">
+                        <strong>Độ sâu phân tích</strong>
+                        <span>(Tối đa 60 depth)</span>
+                    </div>
+                    <div class="stepper-group">
+                        <button class="btn-stepper" id="btn-chart-depth-minus"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/></svg></button>
+                        <input type="number" id="input-chart-depth" min="1" max="60" step="1" value="20">
+                        <button class="btn-stepper" id="btn-chart-depth-plus"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg></button>
+                    </div>
+                </div>
+
+                <div class="settings-row">
+                    <div class="settings-label">
+                        <strong>Thời gian / 1 nước</strong>
+                        <span>(Tối đa 60 giây)</span>
+                    </div>
+                    <div class="stepper-group">
+                        <button class="btn-stepper" id="btn-chart-time-minus"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/></svg></button>
+                        <input type="number" id="input-chart-time" min="1" max="60" step="1" value="2">
+                        <button class="btn-stepper" id="btn-chart-time-plus"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg></button>
+                    </div>
+                </div>
+
+            </div>
+
+            <div style="display: flex; border-top: 1px solid #eee;">
+                <button class="modal-btn-half" id="btn-chart-cancel" style="color: #666; border-right: 1px solid #eee;">Hủy</button>
+                <button class="modal-btn-half" id="btn-chart-confirm" style="color: #1a73e8; font-weight: bold;">Xác nhận</button>
             </div>
         </div>
     </div>

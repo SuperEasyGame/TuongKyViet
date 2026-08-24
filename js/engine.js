@@ -1,10 +1,15 @@
 // js/engine.js
 import { drawBestMoveArrow, clearArrow } from './board.js';
-import { customTranslator, executeMove } from './game.js'; 
+import { initChartUI, addChartPoint, closeChartUI } from './chart.js';
+import { customTranslator, executeMove,instantJumpToNode } from './game.js'; 
 import { showToast, showAILoading, hideAILoading } from './ui.js';
 import { getStrictLegalMoves } from './rules.js';
 import { state, storage } from './state.js'; // Thêm storage vào đây
 import { queryLocalBookWorker } from './localbook.js';
+
+let chartCurrentNode = null;
+let chartTimerId = null;
+let chartLatestScore = 0;
 
 let pendingAction = null; 
 let stopTimeoutId = null; 
@@ -753,6 +758,44 @@ function renderMultiPVList() {
 }
 
 export function handleEngineOutput(text) {
+    if (state.isChartRunning) {
+        if (text.includes("score cp")) {
+            const cpMatch = text.match(/score cp (-?\d+)/);
+            if (cpMatch) chartLatestScore = parseInt(cpMatch[1]);
+        }
+        if (text.includes("score mate")) {
+            const mateMatch = text.match(/score mate (-?\d+)/);
+            if (mateMatch) chartLatestScore = parseInt(mateMatch[1]) > 0 ? 1000 : -1000;
+        }
+
+        if (text.startsWith("bestmove")) {
+            clearTimeout(chartTimerId);
+            isEngineSearching = false;
+
+            const isRedTurnNow = chartCurrentNode.fen.split(" ")[1] === "w";
+            const absoluteScore = isRedTurnNow ? chartLatestScore : -chartLatestScore;
+            const isRedMoved = !isRedTurnNow; 
+            
+            addChartPoint(absoluteScore, isRedMoved);
+
+            if (chartCurrentNode.children.length > 0) {
+                chartCurrentNode = chartCurrentNode.children[chartCurrentNode.mainLineIndex];
+                
+                setTimeout(() => {
+                    // CHỈ CHẠY TIẾP NẾU CỜ DRAWING CÒN ĐANG BẬT
+                    if (state.isChartDrawing) {
+                        analyzeNextChartNode(); 
+                    }
+                }, 100); 
+                
+            } else {
+                // Đã hết nước đi -> Gọi hàm mở khóa thay vì tắt biểu đồ
+                import('./events.js').then(ev => ev.finishChartDrawing());
+            }
+        }
+        return; // ÉP RETURN ĐỂ BỎ QUA CODE NORMAL PHÍA DƯỚI
+    }
+
     if (text.startsWith("info depth")) {
         const depthMatch = text.match(/depth (\d+)/);
         const scoreCpMatch = text.match(/score cp (-?\d+)/);
@@ -930,4 +973,43 @@ export function forceStopEngine() {
         state.engineModule.sendCommand("stop");
         isEngineSearching = false;
     }
+}
+
+export function startChartAnalysisProcess() {
+    if (!state.rootNode || state.rootNode.children.length === 0) {
+        import('./ui.js').then(ui => ui.showToast("Bàn cờ chưa có nước đi nào để phân tích!"));
+        import('./events.js').then(ev => ev.exitChartMode());
+        return;
+    }
+
+    initChartUI(); // Reset Canvas
+    
+    // Phân tích bắt đầu từ Nước số 1
+    chartCurrentNode = state.rootNode.children[state.rootNode.mainLineIndex];
+    analyzeNextChartNode();
+}
+
+function analyzeNextChartNode() {
+    // 1. Nhảy hình cờ & lịch sử về nước đang phân tích
+    instantJumpToNode(chartCurrentNode);
+
+    // 2. Reset thông số điểm
+    chartLatestScore = 0;
+    const maxTimeMs = state.chartSettings.time * 1000;
+    const maxDepth = state.chartSettings.depth;
+
+    // 3. Gửi lệnh UCI (Luồng lấy từ config, Skill ép cứng 20)
+    state.engineModule.sendCommand(`setoption name Skill Level value 20`);
+    state.engineModule.sendCommand(`setoption name Threads value ${state.aiSettings.threads}`);
+    state.engineModule.sendCommand(`setoption name MultiPV value 1`);
+    
+    state.engineModule.sendCommand(`position fen ${chartCurrentNode.fen}`);
+    state.engineModule.sendCommand(`go depth ${maxDepth}`); // Động cơ bắt đầu chạy
+    
+    isEngineSearching = true;
+
+    // 4. Hẹn giờ: NẾU QUÁ THỜI GIAN -> ÉP DỪNG ĐỂ LẤY KẾT QUẢ ĐANG CÓ
+    chartTimerId = setTimeout(() => {
+        if (isEngineSearching) state.engineModule.sendCommand("stop");
+    }, maxTimeMs);
 }
