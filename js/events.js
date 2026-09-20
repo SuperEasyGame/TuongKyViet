@@ -1,4 +1,4 @@
-// js/events.js
+//js/events.js
 import { state, storage } from './state.js';
 import { getWorkspace , saveWorkspace, deleteWorkspace } from './db.js';
 import { toggleAutoPlay, forceStopAIPlayers, jumpToNode, initGame, loadGameFromList } from './game.js';
@@ -6,7 +6,7 @@ import { triggerEngineEvaluation, applyEngineSettings, getDeviceTier } from './e
 import { openModal, closeModal, updateTurnToggleUI, showLoading, hideLoading, showToast, renderLibraryList, confirmDeleteLibraryItem, renderMemorizeList, syncBookTabUI } from './ui.js';
 import { finishEditing, turnOnEditMode } from './editor.js';
 import { handleImageRecognition, handleFileUpload, getMoveListAndComments, copyToClipboard, getVschessNodeTree, downloadFile, getFormattedDate, formatGameInfoString, saveGameState } from './io.js';
-import { renderBoardFull, drawBestMoveArrow, clearArrow } from './board.js';
+import { renderBoardFull, drawBestMoveArrow, clearArrow, updateActiveMoveBadge, renderMoveHistory } from './board.js';
 import { START_FEN, VschessErrorDict } from './config.js';
 import { uploadLocalBook, deleteLocalBook, loadLocalBookFromDB } from './localbook.js';
 
@@ -36,6 +36,7 @@ function setupStepper(stateKey, inputId, minusId, plusId, min, defaultMax, step,
     if (!input || !btnMinus || !btnPlus) return;
     
     const hashValues = [32, 64, 128, 192, 256, 320, 384, 448, 512];
+    const isFloat = !Number.isInteger(step);
 
     let targetObj;
     if (targetType === 'ai') targetObj = state.aiSettings;
@@ -78,7 +79,9 @@ function setupStepper(stateKey, inputId, minusId, plusId, min, defaultMax, step,
             let idx = hashValues.indexOf(val);
             if (idx > 0) input.value = hashValues[idx - 1];
         } else {
-            if (val - step >= min) input.value = val - step;
+            if (val - step >= min) {
+                input.value = isFloat ? (val - step).toFixed(1) : (val - step);
+            }
         }
         updateState(true);
         
@@ -95,7 +98,9 @@ function setupStepper(stateKey, inputId, minusId, plusId, min, defaultMax, step,
                 input.value = hashValues[idx + 1];
             }
         } else {
-            if (val + step <= currentMax) input.value = val + step;
+            if (val + step <= currentMax) {
+                input.value = isFloat ? (val + step).toFixed(1) : (val + step);
+            }
         }
         updateState(true);
         
@@ -104,7 +109,23 @@ function setupStepper(stateKey, inputId, minusId, plusId, min, defaultMax, step,
     };
 
     input.onblur = () => updateState(true);
-    input.oninput = function() { this.value = this.value.replace(/[^0-9.]/g, ''); };
+    
+    input.oninput = function() {
+        if (!isFloat) {
+            this.value = this.value.replace(/[^0-9]/g, '');
+        } else {
+            let val = this.value.replace(/[^0-9.]/g, '');
+            let parts = val.split('.');
+            if (parts.length > 2) {
+                val = parts[0] + '.' + parts.slice(1).join('');
+            }
+            parts = val.split('.');
+            if (parts.length === 2 && parts[1].length > 1) {
+                val = parts[0] + '.' + parts[1].substring(0, 1);
+            }
+            this.value = val;
+        }
+    };
     
     updateState(false); 
 }
@@ -117,8 +138,9 @@ function resetAIUI() {
     }
 }
 
-async function switchMode(newMode, customFen = START_FEN) {
+async function switchMode(newMode, customFen = START_FEN, forceNew = false) {
     document.querySelectorAll('.menu-item').forEach(btn => btn.classList.remove('menu-item-active'));
+    document.querySelectorAll('.tool-btn-outer').forEach(btn => btn.classList.remove('disabled'));
     let targetMenuId = `menu-${newMode}`;
     if (newMode === 'vsbot') targetMenuId = 'menu-bot'; 
 
@@ -163,7 +185,7 @@ async function switchMode(newMode, customFen = START_FEN) {
         
         try { storage.saveSystem(state.appSettings); } catch(e) {}
 
-        if (customFen !== START_FEN) {
+        if (customFen !== START_FEN || forceNew) {
             await initGame(customFen, false); 
         } else {
             await initGame(START_FEN, true); 
@@ -173,32 +195,78 @@ async function switchMode(newMode, customFen = START_FEN) {
     }, 50);
 }
 
-// Hàm mở khóa điều hướng khi vẽ xong (Giữ nguyên biểu đồ hiển thị)
 export function finishChartDrawing() {
+    import('./ui.js').then(ui => ui.hideAILoading());
     state.isChartDrawing = false;
     document.body.classList.remove('chart-drawing');
+
+    state.isChartAnalyzed = true; 
     
-    // Cưỡng chế dừng Động cơ Pikafish đang vẽ biểu đồ dở dang
+    let temp = state.rootNode;
+    while(temp.children.length > 0) {
+        temp = temp.children[temp.mainLineIndex];
+    }
+    
+    import('./report.js').then(report => {
+        state.chartReport = report.generateReportData();
+        
+        report.renderReportUI();
+        report.renderMistakesUI();
+        
+        import('./chart.js').then(chart => chart.refreshChartUI());
+    });
+
+    import('./game.js').then(game => {
+        game.instantJumpToNode(temp, true); 
+        
+        setTimeout(() => {
+            const activeBtn = document.getElementById('active-move-btn');
+            if (activeBtn) {
+                activeBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        }, 100);
+    });
+
     import('./engine.js').then(engine => engine.forceStopEngine());
+    import('./board.js').then(b => {
+        b.renderMoveHistory(); 
+        b.renderBoardFull(state.currentSituation);
+    });
     
-    showToast("Phân tích biểu đồ hoàn tất! Bạn có thể xem lại các nước cờ.");
+    showToast("Phân tích biểu đồ hoàn tất!");
 }
 
-// Hàm thoát hoàn toàn chế độ biểu đồ (Trở về như ban đầu)
 export function exitChartMode() {
+    import('./ui.js').then(ui => ui.hideAILoading());
     state.isChartRunning = false;
     state.isChartDrawing = false;
+    
+    state.isChartAnalyzed = false; 
+
     document.body.classList.remove('chart-running', 'chart-drawing');
     
     const btnChart = document.getElementById('btn-chart');
     if (btnChart) btnChart.classList.remove('tool-active');
     
-    import('./engine.js').then(engine => engine.forceStopEngine());
+    import('./game.js').then(game => {
+        game.forceStopAIPlayers();
+        game.clearTreeAnalysisData(state.rootNode);
+    });
+
+    import('./engine.js').then(engine => engine.restoreEngineAfterChart());
     
-    // Trả lại UI Tab Phân tích ban đầu
     import('./chart.js').then(chart => chart.closeChartUI());
-    
-    showToast("Đã tắt chế độ biểu đồ!");
+
+    import('./board.js').then(b => {
+        b.clearArrow();
+        b.renderMoveHistory(); 
+        b.renderBoardFull(state.currentSituation);
+    });
+
+    setTimeout(() => {
+        const activeBtn = document.getElementById('active-move-btn');
+        if (activeBtn) activeBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 100);
 }
 
 export function initEvents() {
@@ -208,6 +276,7 @@ export function initEvents() {
         const btnMenu = document.getElementById('btn-menu');
         if (menu && menu.classList.contains('show-menu') && !menu.contains(e.target) && !btnMenu.contains(e.target)) {
             closeModal('main-menu-modal'); 
+            import('./game.js').then(g => g.syncPlayerTimer());
         }
     });
 
@@ -226,7 +295,6 @@ export function initEvents() {
         if (state.isChartDrawing) {
             if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) {
                 e.preventDefault();
-                showToast("Đang vẽ biểu đồ, không thể thao tác!");
                 return;
             }
         }
@@ -294,7 +362,6 @@ export function initEvents() {
             if (btnHint.classList.contains('disabled') || !state.engineModule) return;
             
             if (state.appMode === 'puzzle') {
-                //showToast(`💡 Máy đang suy nghĩ nước giải...`);
                 btnHint.classList.add('disabled');
                 
                 const isRedTurn = state.currentNode.fen.split(" ")[1] === "w";
@@ -365,6 +432,14 @@ export function initEvents() {
     const btnMenu = document.getElementById('btn-menu');
     if(btnMenu) {
         btnMenu.onclick = () => { 
+            import('./timer.js').then(t => {
+                t.PlayerTimer.stop();
+                if (state.appMode === 'vsbot' && state.vsBotSettings.useTimer) {
+                    state.vsBotSettings.remainingTimeMs = t.PlayerTimer.getRemainingMs();
+                    storage.saveVsBot(state.vsBotSettings);
+                    saveGameState();
+                }
+            });
             btnMenu.classList.add('tool-active'); 
             setTimeout(() => btnMenu.classList.remove('tool-active'), 200); 
             
@@ -382,7 +457,7 @@ export function initEvents() {
     }
 
     const btnCloseMainMenu = document.getElementById('btn-close-main-menu');
-    if(btnCloseMainMenu) btnCloseMainMenu.onclick = () => { closeModal('main-menu-modal'); };
+    if(btnCloseMainMenu) btnCloseMainMenu.onclick = () => { closeModal('main-menu-modal'); import('./game.js').then(g => g.syncPlayerTimer()); };
     
     const menuAnalyze = document.getElementById('menu-analyze');
     if(menuAnalyze) menuAnalyze.onclick = () => { switchMode('analyze'); };
@@ -391,22 +466,46 @@ export function initEvents() {
     const menuBot = document.getElementById('menu-bot');
     if(menuBot) {
         menuBot.onclick = async () => { 
+            if (state.appMode === 'vsbot') {
+                closeModal('main-menu-modal');
+                import('./game.js').then(g => g.syncPlayerTimer());
+                return;
+            }
             try {
                 const workspace = await getWorkspace('vsbot_workspace');
                 if (workspace && workspace.gameList && workspace.gameList.length > 0) {
-                    switchMode('vsbot');
+                    closeModal('main-menu-modal');
+                    openModal('vsbot-resume-modal');
                 } else {
                     state.vsBotSetupOrigin = 'menu'; 
                     closeModal('main-menu-modal');
-                    document.getElementById('setup-bot-fen').value = START_FEN;
                     document.getElementById('setup-bot-style').value = state.vsBotSettings.botStyle || 'standard';
                     openModal('vsbot-setup-modal');
                 }
             } catch (e) {
                 state.vsBotSetupOrigin = 'menu';
                 closeModal('main-menu-modal');
+                document.getElementById('setup-bot-style').value = state.vsBotSettings.botStyle || 'standard';
                 openModal('vsbot-setup-modal');
             }
+        };
+    }
+
+    const btnVsbotResumeNew = document.getElementById('btn-vsbot-resume-new');
+    if (btnVsbotResumeNew) {
+        btnVsbotResumeNew.onclick = () => {
+            closeModal('vsbot-resume-modal');
+            state.vsBotSetupOrigin = 'menu'; 
+            document.getElementById('setup-bot-style').value = state.vsBotSettings.botStyle || 'standard';
+            openModal('vsbot-setup-modal');
+        };
+    }
+
+    const btnVsbotResumeContinue = document.getElementById('btn-vsbot-resume-continue');
+    if (btnVsbotResumeContinue) {
+        btnVsbotResumeContinue.onclick = () => {
+            closeModal('vsbot-resume-modal');
+            switchMode('vsbot'); 
         };
     }
 
@@ -434,18 +533,27 @@ export function initEvents() {
             
             triggerEngineEvaluation();
             
-            import('./game.js').then(module => module.updateVsBotToolButtons());
+            import('./game.js').then(module => {
+                module.updateVsBotToolButtons();
+
+                import('./timer.js').then(t => {
+                    if (state.vsBotSettings.useTimer) {
+                        state.vsBotSettings.remainingTimeMs = t.PlayerTimer.getRemainingMs();
+                    }
+                    module.syncPlayerTimer(); 
+                });
+            });
+        }
+        else if (state.vsBotSetupOrigin === 'toolbar') {
+            import('./game.js').then(g => g.syncPlayerTimer());
         }
     };
     document.getElementById('btn-setup-confirm').onclick = () => {
-        let fenInput = document.getElementById('setup-bot-fen').value.trim();
-        if (fenInput.includes("moves")) {
-            showToast("❌ Không được nhập biên bản nước đi. Chỉ chấp nhận mã hình cờ FEN!");
-            return;
-        }
-
-        if (!fenInput.includes(" w ") && !fenInput.includes(" b ")) {
-            fenInput += " w - - 0 1";
+        // --- CẬP NHẬT MỚI: Dùng START_FEN hoặc lấy FEN từ Import ---
+        let fenInput = START_FEN;
+        if ((state.vsBotSetupOrigin === 'import_mode' || state.vsBotSetupOrigin === 'edit_mode') && state.pendingBotFen) {
+            fenInput = state.pendingBotFen;
+            state.pendingBotFen = null; // Xoá biến tạm sau khi dùng
         }
 
         const errorList = vschess.checkFen(fenInput);
@@ -469,9 +577,26 @@ export function initEvents() {
         const mainStyle = document.getElementById('input-bot-style');
         if(mainStyle) mainStyle.value = state.vsBotSettings.botStyle;
         
-        storage.saveVsBot(state.vsBotSettings);
+        // --- XỬ LÝ THỜI GIAN ---
+        const toggleTimer = document.getElementById('toggle-vsbot-timer');
+        if (toggleTimer) {
+            state.vsBotSettings.useTimer = toggleTimer.checked;
+        }
+        if (state.vsBotSettings.useTimer) {
+            state.vsBotSettings.remainingTimeMs = state.vsBotSettings.baseTime * 60 * 1000;
+        } else {
+            state.vsBotSettings.remainingTimeMs = 0;
+        }
         
+        storage.saveVsBot(state.vsBotSettings);
         closeModal('vsbot-setup-modal');
+        deleteWorkspace('vsbot_workspace').then(() => {
+            if (state.appMode === 'vsbot') {
+                initGame(fenInput, false); 
+            } else {
+                switchMode('vsbot', fenInput, true); // Truyền thêm 'true' vào forceNew
+            }
+        });
 
         if (state.appMode === 'vsbot') {
             initGame(fenInput, false); 
@@ -610,7 +735,6 @@ export function initEvents() {
                 saveWorkspace('puz_prog_' + state.currentPuzzleSolvedKey, state.currentPuzzleIndex);
                 const nextFen = state.puzzleFens[state.currentPuzzleIndex];
                 switchMode('puzzle', nextFen);
-                //showToast(`Đã mở bài số ${state.currentPuzzleIndex + 1}!`);
             }
         };
     }
@@ -830,7 +954,6 @@ export function initEvents() {
             });
 
             closeModal('memorize-setup-modal');
-            //showToast("✅ Bắt đầu Luyện Nhớ Ván!");
         };
     }
     const btnMemoRetry = document.getElementById('btn-memo-retry');
@@ -899,6 +1022,23 @@ export function initEvents() {
     const btnDelLibConfirm = document.getElementById('btn-del-lib-confirm');
     if (btnDelLibConfirm) btnDelLibConfirm.onclick = () => confirmDeleteLibraryItem();
 
+    // ====== Hướng dẫn Thanh công cụ ======
+    const menuGuide = document.getElementById('menu-guide');
+    if(menuGuide) {
+        menuGuide.onclick = () => { 
+            import('./ui.js').then(ui => {
+                ui.closeModal('main-menu-modal'); 
+                ui.openGuidePanel();              
+            });
+        };
+    }
+    const btnGuideClose = document.getElementById('btn-guide-close');
+    if (btnGuideClose) {
+        btnGuideClose.onclick = () => {
+            import('./ui.js').then(ui => ui.closeGuidePanel());
+        };
+    }
+
     // ====== Setting ======
     const menuSettings = document.getElementById('menu-settings');
     if(menuSettings) menuSettings.onclick = () => { 
@@ -918,7 +1058,9 @@ export function initEvents() {
     const btnSettingsBack = document.getElementById('btn-settings-back');
     if(btnSettingsBack) btnSettingsBack.onclick = () => { 
         closeModal('settings-modal'); 
-        if (state.appMode !== 'vsbot') applyEngineSettings(); 
+        if (state.appMode !== 'vsbot') {
+            import('./engine.js').then(m => m.applyEngineSettings());
+        }
         
         document.querySelectorAll('.menu-item').forEach(btn => btn.classList.remove('menu-item-active'));
         let currentModeId = `menu-${state.appMode}`;
@@ -930,44 +1072,78 @@ export function initEvents() {
         openModal('main-menu-modal'); 
     };
 
-    let maxThreads = 1; 
-    if (navigator.deviceMemory) {
-        maxThreads = Math.max(1, Math.floor(navigator.deviceMemory / 2));
-    } else if (navigator.hardwareConcurrency) {
-        maxThreads = Math.max(1, Math.floor(navigator.hardwareConcurrency / 2));
-    }
-    if (maxThreads > 16) maxThreads = 16;
+    // =========================================================
+    // ĐỒNG BỘ GIỚI HẠN PHẦN CỨNG VỚI GIAO DIỆN (CHUẨN XIANGQIAI)
+    // =========================================================
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
     
-    const tier = getDeviceTier();
-    let maxHash = 512, maxDepth = 100;
-    if (tier === 'MOBILE_HIGH') { maxHash = 512; maxDepth = 60; }
-    if (tier === 'MOBILE_LOW') { maxHash = 128; maxDepth = 30; maxThreads = 1; }
-
+    // 1. TÍNH TOÁN MAX THREADS
+    let maxThreads = 1; 
+    if (typeof SharedArrayBuffer !== 'undefined') {
+        maxThreads = (typeof navigator !== 'undefined' && navigator.hardwareConcurrency) ? navigator.hardwareConcurrency : 2;
+        if (maxThreads > 16) maxThreads = 16;
+    }
+    
     const inputThreads = document.getElementById('input-threads');
     if (inputThreads) inputThreads.max = maxThreads;
     
     const descThreads = document.getElementById('desc-threads');
-    if (descThreads) descThreads.innerText = tier === 'MOBILE_LOW' ? `Tối đa: 1 luồng (Dành cho máy yếu)` : `Tối đa: ${maxThreads} luồng (Tự động theo RAM)`;
+    if (descThreads) {
+        descThreads.innerText = maxThreads === 1 ? `Tối đa: 1 luồng (Bản An toàn)` : `Tối đa: ${maxThreads} luồng`;
+    }
 
     if (state.aiSettings.threads > maxThreads) {
         state.aiSettings.threads = maxThreads;
         if (inputThreads) inputThreads.value = maxThreads;
     }
 
-    document.getElementById('input-hash')?.setAttribute('max', maxHash);
-    document.getElementById('input-depth')?.setAttribute('max', maxDepth);
+    // 2. TÍNH TOÁN MAX HASH VÀ ĐỒNG BỘ SENTINEL CEILING
+    let maxHash = 512;
+    const inputHash = document.getElementById('input-hash');
+    
+    // Đọc trần Max Hash trực tiếp từ HTML (do engine.js set dựa trên SIMD và WebView)
+    if (inputHash && inputHash.hasAttribute('max')) {
+        maxHash = parseInt(inputHash.getAttribute('max'), 10);
+    }
 
+    // Import lấy Trần bộ nhớ an toàn (Sentinel Ceiling) để đề phòng trường hợp tải trang lần đầu
+    import('./engine.js').then(engineModule => {
+        if (engineModule.EngineSentinel) {
+            const hashCeiling = engineModule.EngineSentinel.getHashCeiling();
+            if (maxHash > hashCeiling) maxHash = hashCeiling;
+            
+            if (inputHash) {
+                inputHash.setAttribute('max', maxHash);
+                // Setup lại Stepper của Hash vì Max đã thay đổi
+                setupStepper('hash', 'input-hash', 'btn-hash-minus', 'btn-hash-plus', 32, maxHash, 32, true, 'ai');
+            }
+            if (state.aiSettings.hash > maxHash) {
+                state.aiSettings.hash = maxHash;
+                if (inputHash) inputHash.value = maxHash;
+                storage.saveAnalysis(state.aiSettings);
+            }
+        }
+    });
+
+    // 3. TÍNH TOÁN MAX DEPTH
+    let maxDepth = 255;
+    const inputDepth = document.getElementById('input-depth');
+    if (inputDepth) inputDepth.setAttribute('max', maxDepth);
+
+    // 4. KHỞI TẠO CÁC NÚT BẤM (+) VÀ (-)
     setupStepper('skill', 'input-skill', 'btn-skill-minus', 'btn-skill-plus', 0, 20, 1, false, 'ai');
     setupStepper('threads', 'input-threads', 'btn-threads-minus', 'btn-threads-plus', 1, maxThreads, 1, false, 'ai');
-    setupStepper('hash', 'input-hash', 'btn-hash-minus', 'btn-hash-plus', 32, maxHash, 32, true, 'ai');
+    // Lưu ý: setupStepper của Hash đã được gọi bên trong promise import() ở trên để đảm bảo nhận đúng maxHash
     setupStepper('multiPV', 'input-multipv', 'btn-multipv-minus', 'btn-multipv-plus', 1, 5, 1, false, 'ai');
     setupStepper('moveTime', 'input-time', 'btn-time-minus', 'btn-time-plus', 0.5, 300, 0.5, false, 'ai');
     setupStepper('depth', 'input-depth', 'btn-depth-minus', 'btn-depth-plus', 1, maxDepth, 1, false, 'ai');
     setupStepper('cloudBookLimit', 'input-cloudlimit', 'btn-cloudlimit-minus', 'btn-cloudlimit-plus', 1, 50, 1, false, 'app');
-    setupStepper('level', 'input-botlevel', 'btn-botlevel-minus', 'btn-botlevel-plus', 1, 10, 1, false, 'bot');
-    setupStepper('level', 'input-setup-level', 'btn-setup-level-minus', 'btn-setup-level-plus', 1, 10, 1, false, 'bot');
-    setupStepper('depth', 'input-chart-depth', 'btn-chart-depth-minus', 'btn-chart-depth-plus', 1, 60, 1, false, 'chart');
-    setupStepper('time', 'input-chart-time', 'btn-chart-time-minus', 'btn-chart-time-plus', 1, 60, 1, false, 'chart');
+    setupStepper('level', 'input-botlevel', 'btn-botlevel-minus', 'btn-botlevel-plus', 1, 12, 1, false, 'bot');
+    setupStepper('level', 'input-setup-level', 'btn-setup-level-minus', 'btn-setup-level-plus', 1, 12, 1, false, 'bot');
+    setupStepper('baseTime', 'input-bot-time', 'btn-bot-time-minus', 'btn-bot-time-plus', 1, 60, 1, false, 'bot');
+    setupStepper('increment', 'input-bot-inc', 'btn-bot-inc-minus', 'btn-bot-inc-plus', 0, 30, 1, false, 'bot');
+    setupStepper('customDepth', 'input-chart-depth', 'btn-chart-depth-minus', 'btn-chart-depth-plus', 10, 30, 1, false, 'chart');
+    setupStepper('customTime', 'input-chart-time', 'btn-chart-time-minus', 'btn-chart-time-plus', 1, 10, 1, false, 'chart');
     
     const inputBotStyle = document.getElementById('input-bot-style');
     if(inputBotStyle) {
@@ -993,11 +1169,26 @@ export function initEvents() {
 
     const toggleAnimation = document.getElementById('toggle-animation');
     const toggleArrows = document.getElementById('toggle-arrows');
+    const toggleDrawArrows = document.getElementById('toggle-draw-arrows');
     const toggleSound = document.getElementById('toggle-sound');
     const toggleCloudbook = document.getElementById('toggle-cloudbook');
+    const toggleVsBotTimer = document.getElementById('toggle-vsbot-timer');
+    const timerSettingsGroup = document.getElementById('vsbot-timer-settings');
+
+    if (toggleVsBotTimer && timerSettingsGroup) {
+        toggleVsBotTimer.checked = state.vsBotSettings.useTimer;
+        timerSettingsGroup.style.opacity = toggleVsBotTimer.checked ? '1' : '0.5';
+        timerSettingsGroup.style.pointerEvents = toggleVsBotTimer.checked ? 'auto' : 'none';
+        toggleVsBotTimer.onchange = (e) => {
+            state.vsBotSettings.useTimer = e.target.checked;
+            timerSettingsGroup.style.opacity = e.target.checked ? '1' : '0.5';
+            timerSettingsGroup.style.pointerEvents = e.target.checked ? 'auto' : 'none';
+        };
+    }
 
     if(toggleAnimation) toggleAnimation.checked = state.appSettings.animation;
     if(toggleArrows) toggleArrows.checked = state.appSettings.arrows;
+    if(toggleDrawArrows) toggleDrawArrows.checked = state.appSettings.allowCustomArrows;
     if(toggleSound) toggleSound.checked = state.appSettings.sound;
     if(toggleCloudbook) toggleCloudbook.checked = state.appSettings.cloudBookEnabled;
 
@@ -1010,6 +1201,16 @@ export function initEvents() {
             state.appSettings.arrows = e.target.checked;
             storage.saveSystem(state.appSettings);
             drawBestMoveArrow();
+        };
+    }
+    if(toggleDrawArrows) {
+        toggleDrawArrows.onchange = (e) => {
+            state.appSettings.allowCustomArrows = e.target.checked;
+            storage.saveSystem(state.appSettings);
+            if (!e.target.checked) {
+                state.customArrows = [];
+                import('./board.js').then(b => b.renderBoardFull(state.currentSituation));
+            }
         };
     }
     if(toggleSound) toggleSound.onchange = (e) => {
@@ -1042,9 +1243,7 @@ export function initEvents() {
     const btnFlip = document.getElementById('btn-flip');
     if(btnFlip) {
         btnFlip.onclick = (e) => {
-            // Khóa lật bàn cờ khi đang mở chế độ biểu đồ
             if (state.isChartRunning) {
-                import('./ui.js').then(ui => ui.showToast("Vui lòng tắt Biểu đồ phân tích trước khi lật bàn cờ!"));
                 return;
             }
             
@@ -1164,13 +1363,26 @@ export function initEvents() {
             const tabName = e.target.getAttribute('data-tab');
             document.querySelectorAll('.ai-content').forEach(box => box.style.display = 'none');
             document.getElementById(`tab-${tabName}`).style.display = 'block';
+            document.querySelectorAll('.mistake-btn').forEach(b => {
+                b.classList.remove('mistake-active-red', 'mistake-active-black');
+            });
+
+            if (tabName === 'pikafish' && (state.isChartRunning || state.isChartAnalyzed)) {
+                import('./chart.js').then(chart => {
+                    setTimeout(() => chart.refreshChartUI(), 10);
+                });
+            }
         };
     });
 
     const commentBox = document.getElementById('comment-box');
     if (commentBox) { 
         commentBox.addEventListener('input', function() { 
-            if (state.currentNode) state.currentNode.comment = this.value; 
+            if (state.currentNode) 
+            {
+                state.currentNode.comment = this.value; 
+                updateActiveMoveBadge();
+            }             
         }); 
     }
 
@@ -1178,11 +1390,17 @@ export function initEvents() {
     if(varBtnConfirm) varBtnConfirm.onclick = () => closeModal('variation-modal');
     
     const btnNewCancel = document.getElementById('btn-new-cancel');
-    if(btnNewCancel) btnNewCancel.onclick = () => closeModal('new-game-modal');
-    
+    if(btnNewCancel) {
+        btnNewCancel.onclick = () => 
+        {
+            closeModal('new-game-modal');
+            import('./game.js').then(g => g.syncPlayerTimer());
+        };
+     }
     const btnNewGame = document.getElementById('btn-new-game');
     if(btnNewGame) {
         btnNewGame.onclick = () => {
+            import('./timer.js').then(t => t.PlayerTimer.stop());
             if (state.isEditMode) { initGame(); return; }
 
             if (state.appMode === 'memorize') {
@@ -1194,8 +1412,15 @@ export function initEvents() {
             
             if (state.appMode === 'vsbot') {
                 state.vsBotSetupOrigin = 'toolbar'; 
-                document.getElementById('setup-bot-fen').value = START_FEN;
                 document.getElementById('setup-bot-style').value = state.vsBotSettings.botStyle || 'standard';
+                import('./timer.js').then(t => {
+                    t.PlayerTimer.stop();
+                    if (state.vsBotSettings.useTimer) {
+                        state.vsBotSettings.remainingTimeMs = t.PlayerTimer.getRemainingMs();
+                        storage.saveVsBot(state.vsBotSettings);
+                        saveGameState();
+                    }
+                });
                 openModal('vsbot-setup-modal');
             } else if (state.appMode === 'puzzle') {
                 const modal = document.getElementById('new-game-modal');
@@ -1270,7 +1495,7 @@ export function initEvents() {
                     document.getElementById('import-text').value = '';
                     
                     state.vsBotSetupOrigin = 'import_mode'; 
-                    document.getElementById('setup-bot-fen').value = fenInput;
+                    state.pendingBotFen = fenInput;
                     document.getElementById('setup-bot-style').value = state.vsBotSettings.botStyle || 'standard';
                     openModal('vsbot-setup-modal');
                     return;
@@ -1454,7 +1679,6 @@ export function initEvents() {
                 let { moves, comments } = getMoveListAndComments();
                 let vNode = getVschessNodeTree(state.rootNode);
                 
-                // ĐÃ XÓA KHỐI XỬ LÝ LIBRARY Ở ĐÂY, CHỈ GIỮ LẠI XUẤT FILE TĨNH
                 if (state.pendingDownloadType === 'pgn-wxf') {
                     let wxfMoves = vschess.nodeList2moveList(moves, state.rootNode.fen, "wxf", vschess.defaultOptions, false);
                     wxfMoves.shift(); 
@@ -1463,7 +1687,7 @@ export function initEvents() {
                 } else if (state.pendingDownloadType === 'pgn-iccs') {
                     let iccsDashMoves = moves.map(m => m.substring(0,2) + "-" + m.substring(2,4));
                     const pgnData = vschess.moveListToData_PGN(iccsDashMoves, state.rootNode.fen, comments, state.currentGameInfo, state.currentGameInfo.result);
-                    downloadFile(downloadFileName + ".pgn", pgnData); // Đã fix biến filename thành downloadFileName
+                    downloadFile(downloadFileName + ".pgn", pgnData); 
                 } else if (state.pendingDownloadType === 'xqf') {
                     const binArray = vschess.nodeToBinary_XQF(vNode, state.currentGameInfo, false);
                     downloadFile(downloadFileName + ".xqf", binArray, true);
@@ -1488,14 +1712,12 @@ export function initEvents() {
             if (defaultName === "Tượng Kỳ Việt" && moves.length > 0) defaultName += "_" + getFormattedDate();
             document.getElementById('save-lib-filename').value = defaultName;
             
-            // TẠO DANH SÁCH DROPDOWN CHO THƯ MỤC
             const selectEl = document.getElementById('save-lib-folder-select');
             selectEl.innerHTML = '<option value="root">📁 Thư mục gốc</option>';
             
             let list = await getWorkspace('library_workspace') || [];
             let folders = list.filter(item => item.type === "folder");
             
-            // Thuật toán Đệ quy vẽ cây Thư mục
             function buildFolderOptions(parentId, prefix) {
                 let children = folders.filter(f => f.parentId === parentId);
                 for (let i = 0; i < children.length; i++) {
@@ -1506,10 +1728,8 @@ export function initEvents() {
                     
                     let option = document.createElement('option');
                     option.value = f.id;
-                    // Fix chống lỗi khoảng trắng HTML bằng &nbsp;
                     option.innerHTML = (nodePrefix + "📁 " + f.name).replace(/ /g, '&nbsp;');
                     
-                    // Tự động chọn Thư mục mà người dùng đang mở gần nhất
                     if (f.id === state.currentLibraryFolderId) option.selected = true;
                     
                     selectEl.appendChild(option);
@@ -1566,28 +1786,23 @@ export function initEvents() {
             loadLocalBookFromDB();
         }
 
-        // Sự kiện đổi loại sách (Cloud/Local)
         bookTypeSelect.onchange = (e) => {
             const val = e.target.value;
             state.appSettings.bookType = val;
             storage.saveSystem(state.appSettings);
             
-            // Cập nhật lại UI Tab
             syncBookTabUI();
             
             if (val === 'local') {
                 if (rowLocalBook) rowLocalBook.style.display = 'flex';
-                // Hàm này đã được bảo vệ, gọi nhiều lần không sao. Nó sẽ tự trigger quét lại.
                 loadLocalBookFromDB(); 
             } else {
                 if (rowLocalBook) rowLocalBook.style.display = 'none';
-                // Nếu đổi về Cloud, ép hệ thống quét Cloud ngay lập tức
                 import('./engine.js').then(m => m.fetchCloudBook(state.currentNode.fen));
             }
         };
     }
 
-    // Sự kiện Click nút tải File
     if (btnUploadLocal && inputLocalFile) {
         btnUploadLocal.onclick = () => inputLocalFile.click();
 
@@ -1595,50 +1810,39 @@ export function initEvents() {
             const file = e.target.files[0];
             if (!file) return;
             
-            // Xử lý UI tạm thời để user biết file đang được đọc
             if (localBookTitle) localBookTitle.innerText = "Đang xử lý...";
             if (localBookFilename) {
                 localBookFilename.innerText = file.name;
                 localBookFilename.style.color = "#008a3e";
             }
             
-            // Gọi hàm xử lý logic IndexedDB bên localbook.js
             uploadLocalBook(file);
-            
-            // Reset input để có thể chọn lại đúng file đó lần sau nếu cần
             e.target.value = '';
         };
     }
 
-    // Sự kiện Click nút Xóa File
     if (btnDeleteLocal) {
         btnDeleteLocal.onclick = () => {
-            // Lấy tên file đang hiển thị
             const fileName = document.getElementById('local-book-filename')?.innerText || "File Book";
-            // Gán tên file vào Modal
             const nameEl = document.getElementById('delete-local-book-name');
             if (nameEl) nameEl.innerText = fileName;
-            
-            // Mở Modal hỏi xác nhận
             openModal('delete-local-book-modal');
         };
     }
 
-    // Nút Hủy trong Modal Xóa Local Book
     const btnDelLocalCancel = document.getElementById('btn-del-local-book-cancel');
     if (btnDelLocalCancel) {
         btnDelLocalCancel.onclick = () => {
-            closeModal('delete-local-book-modal'); // Chỉ đóng bảng
+            closeModal('delete-local-book-modal'); 
         };
     }
 
-    // Nút Xác nhận trong Modal Xóa Local Book
     const btnDelLocalConfirm = document.getElementById('btn-del-local-book-confirm');
     if (btnDelLocalConfirm) {
         btnDelLocalConfirm.onclick = () => {
-            closeModal('delete-local-book-modal'); // Đóng bảng
+            closeModal('delete-local-book-modal'); 
             if (inputLocalFile) inputLocalFile.value = '';
-            deleteLocalBook(); // Gọi hàm xóa thực sự
+            deleteLocalBook(); 
         };
     }
 
@@ -1778,7 +1982,6 @@ export function initEvents() {
                                 if (!res) return saveWorkspace('my_puzzle', { files: [] });
                             })
                         ]).then(() => {
-                            //showToast("🔓 Đã mở khóa Bài Tập Của Tôi!");
                             loadPuzzleManifest('data', ''); 
                         });
                         clickCount = 0;
@@ -1945,8 +2148,6 @@ export function initEvents() {
                     const fenIndex = parseInt(item.dataset.index);
                     const selectedFen = state.puzzleFens[fenIndex];
                     
-                    // FIX LỖI: So sánh trực tiếp mã FEN thay vì so sánh Index
-                    // Nếu mã FEN bài đang chọn trùng khớp y hệt mã FEN đang hiển thị trên bàn cờ thì mới chặn
                     if (state.appMode === 'puzzle' && state.rootNode && state.rootNode.fen === selectedFen) {
                         closeModal('puzzle-modal');
                         return; 
@@ -1958,7 +2159,6 @@ export function initEvents() {
                     
                     closeModal('puzzle-modal');
                     switchMode('puzzle', selectedFen);
-                    //showToast(`Đã mở bài tập số ${fenIndex + 1}!`);
                 };
 
                 puzzleDomPool.push(item);
@@ -2088,7 +2288,6 @@ export function initEvents() {
     // CÁC SỰ KIỆN NÚT BẤM CHO THƯ VIỆN CÂY
     // ==========================================
     
-    // Nút Quay lại thư mục cha
     const btnLibBack = document.getElementById('btn-lib-back');
     if (btnLibBack) {
         btnLibBack.onclick = () => {
@@ -2099,12 +2298,10 @@ export function initEvents() {
         };
     }
 
-    // Nút Bật Bảng Tạo Thư Mục Mới
     const btnLibAddFolder = document.getElementById('btn-lib-add-folder');
     if (btnLibAddFolder) {
         btnLibAddFolder.onclick = () => {
             import('./ui.js').then(ui => {
-                // SỬA LỖI Ở ĐÂY: Dùng hàm thay vì gán trực tiếp
                 ui.setPendingLibAction({ id: "", type: "folder", name: "" });
                 
                 document.getElementById('folder-action-title').innerText = "Tạo Thư Mục Mới";
@@ -2114,7 +2311,6 @@ export function initEvents() {
         };
     }
 
-    // Hủy / Xác nhận Tạo & Sửa tên Thư mục
     const btnFolderCancel = document.getElementById('btn-folder-cancel');
     if (btnFolderCancel) btnFolderCancel.onclick = () => closeModal('folder-action-modal');
 
@@ -2132,13 +2328,11 @@ export function initEvents() {
                 let list = await getWorkspace('library_workspace') || [];
                 
                 if (ui.pendingLibAction.id) {
-                    // CẬP NHẬT TÊN
                     let folder = list.find(f => f.id === ui.pendingLibAction.id);
                     if (folder) folder.name = folderName;
                     await saveWorkspace('library_workspace', list);
                     showToast("✅ Đổi tên thành công!");
                 } else {
-                    // TẠO MỚI
                     const newFolder = {
                         id: 'folder_' + Date.now(),
                         type: 'folder',
@@ -2156,7 +2350,6 @@ export function initEvents() {
         };
     }
 
-    // Nút Hủy / Xác nhận Lưu Ván Cờ Vào Thư Viện
     const btnSaveLibCancel = document.getElementById('btn-save-lib-cancel');
     if (btnSaveLibCancel) {
         btnSaveLibCancel.onclick = () => {
@@ -2199,7 +2392,6 @@ export function initEvents() {
             }
         };
     }
-    // Nút Quay lại thư mục cha của LUYỆN NHỚ VÁN
     const btnMemoBack = document.getElementById('btn-memo-back');
     if (btnMemoBack) {
         btnMemoBack.onclick = () => {
@@ -2210,14 +2402,13 @@ export function initEvents() {
         };
     }
 
-   // ==========================================
+    // ==========================================
     // CÁC SỰ KIỆN NÚT BẤM CHO CHỌN GIAO DIỆN (STYLE)
     // ==========================================
     let styleManifest = null;
-    let currentSelectionType = ''; // 'board' hoặc 'piece'
-    let tempSelectedStyleObj = null; // Chứa Object {name, path} đang click tạm
+    let currentSelectionType = ''; 
+    let tempSelectedStyleObj = null; 
     
-    // Nạp tên hiển thị ban đầu từ Path lưu trong State (Local Storage)
     function getStyleNameFromPath(manifestList, path) {
         if (!manifestList) return "Mặc Định";
         const found = manifestList.find(item => item.path === path);
@@ -2249,10 +2440,8 @@ export function initEvents() {
         const listData = isBoard ? manifest.boards : manifest.pieces;
         const savedPath = isBoard ? state.appSettings.boardStyle : state.appSettings.pieceStyle;
         
-        // Set temp ban đầu chính là Style đang dùng
         tempSelectedStyleObj = listData.find(item => item.path === savedPath) || listData[0];
 
-        // Cập nhật Text ở ngoài Setting
         const elText = document.getElementById(isBoard ? 'current-board-name' : 'current-piece-name');
         if (elText) elText.innerText = tempSelectedStyleObj.name;
 
@@ -2274,7 +2463,7 @@ export function initEvents() {
                 btn.onclick = () => {
                     container.querySelectorAll('.style-item-btn').forEach(b => b.classList.remove('style-item-active'));
                     btn.classList.add('style-item-active');
-                    tempSelectedStyleObj = item; // Nhớ lại Object (chứa cả name và path)
+                    tempSelectedStyleObj = item; 
                 };
 
                 container.appendChild(btn);
@@ -2284,7 +2473,6 @@ export function initEvents() {
         import('./ui.js').then(ui => ui.openModal('style-select-modal'));
     }
 
-    // Khởi tạo Text giao diện lúc F5 load trang
     loadStyleManifest().then(manifest => {
         const boardEl = document.getElementById('current-board-name');
         if (boardEl) boardEl.innerText = getStyleNameFromPath(manifest.boards, state.appSettings.boardStyle);
@@ -2293,7 +2481,6 @@ export function initEvents() {
         if (pieceEl) pieceEl.innerText = getStyleNameFromPath(manifest.pieces, state.appSettings.pieceStyle);
     });
 
-    // Bắt sự kiện Click vào 2 Row
     const rowBoardStyle = document.getElementById('row-board-style');
     if (rowBoardStyle) {
         rowBoardStyle.onclick = () => openStyleModal('board');
@@ -2308,16 +2495,13 @@ export function initEvents() {
         rowPieceStyle.onmouseleave = function() { this.style.backgroundColor = "transparent"; };
     }
 
-    // Nút Hủy
     const btnStyleCancel = document.getElementById('btn-style-cancel');
     if (btnStyleCancel) {
         btnStyleCancel.onclick = () => {
-            // Chỉ đóng Modal. Khi mở lại, hàm openStyleModal sẽ tự Reset màu UI dựa theo State gốc.
             import('./ui.js').then(ui => ui.closeModal('style-select-modal'));
         };
     }
 
-    // Nút Xác nhận
     const btnStyleConfirm = document.getElementById('btn-style-confirm');
     if (btnStyleConfirm) {
         btnStyleConfirm.onclick = () => {
@@ -2326,10 +2510,8 @@ export function initEvents() {
             const isBoard = (currentSelectionType === 'board');
             const savedPath = isBoard ? state.appSettings.boardStyle : state.appSettings.pieceStyle;
 
-            // KIỂM TRA ĐIỀU KIỆN 3: Nếu chọn trùng cái đang dùng thì bỏ qua không load
             if (savedPath === tempSelectedStyleObj.path) return;
 
-            // ĐIỀU KIỆN 4: Hiện màn hình loading phủ đen tối thiểu 0.5s để chống chớp
             showLoading("Đang áp dụng giao diện...");
             
             const startLoadTime = Date.now();
@@ -2349,10 +2531,8 @@ export function initEvents() {
                     if (el) el.innerText = tempSelectedStyleObj.name;
                 }
 
-                // Lưu Setting vào Cache
                 storage.saveSystem(state.appSettings);
 
-                // Khi tải ảnh xong, kiểm tra xem đã qua 0.5s chưa. Nếu chưa thì chờ cho đủ
                 loadPromise.then(() => {
                     const elapsed = Date.now() - startLoadTime;
                     const remainingTime = Math.max(0, 500 - elapsed);
@@ -2369,11 +2549,49 @@ export function initEvents() {
     // ==========================================
     // CÁC SỰ KIỆN CHO TÍNH NĂNG BIỂU ĐỒ PHÂN TÍCH
     // ==========================================
-   // 1. Nút bấm trên Toolbar
+    
+    const CHART_PRESETS = {
+        very_fast: { depth: 12, time: 1 },
+        fast:      { depth: 14, time: 2 },
+        normal:    { depth: 16, time: 3 },
+        deep:      { depth: 18, time: 5 },
+        very_deep: { depth: 20, time: 8 }
+    };
+
+    const chartModeSelect = document.getElementById('chart-mode-select');
+    const chartPresetSelect = document.getElementById('chart-preset-select');
+    const chartPresetGroup = document.getElementById('chart-preset-group');
+    const chartCustomGroup = document.getElementById('chart-custom-group');
+
+    if (chartModeSelect && chartPresetSelect) {
+        chartModeSelect.value = state.chartSettings.mode || 'preset';
+        chartPresetSelect.value = state.chartSettings.preset || 'fast';
+
+        const updateChartSetupUI = () => {
+            if (chartModeSelect.value === 'preset') {
+                chartPresetGroup.style.display = 'flex';
+                chartCustomGroup.style.display = 'none';
+            } else {
+                chartPresetGroup.style.display = 'none';
+                chartCustomGroup.style.display = 'block';
+            }
+        };
+
+        chartModeSelect.onchange = (e) => {
+            state.chartSettings.mode = e.target.value;
+            updateChartSetupUI();
+        };
+
+        chartPresetSelect.onchange = (e) => {
+            state.chartSettings.preset = e.target.value;
+        };
+
+        updateChartSetupUI();
+    }
+
     const btnChart = document.getElementById('btn-chart');
     if (btnChart) {
         btnChart.onclick = () => {
-            // NẾU ĐANG CHẠY MÀ BẤM NÚT NÀY -> TẮT HOÀN TOÀN BIỂU ĐỒ
             if (state.isChartRunning) {
                 exitChartMode();
             } else {
@@ -2382,17 +2600,24 @@ export function initEvents() {
         };
     }
 
-    // 2. Nút Hủy
     const btnChartCancel = document.getElementById('btn-chart-cancel');
     if (btnChartCancel) {
         btnChartCancel.onclick = () => { closeModal('chart-setup-modal'); };
     }
 
-    // 3. Nút Xác nhận
     const btnChartConfirm = document.getElementById('btn-chart-confirm');
     if (btnChartConfirm) {
         btnChartConfirm.onclick = () => {
             closeModal('chart-setup-modal');
+
+            if (state.chartSettings.mode === 'preset') {
+                const selectedPreset = CHART_PRESETS[state.chartSettings.preset];
+                state.chartSettings.runDepth = selectedPreset.depth;
+                state.chartSettings.runTime = selectedPreset.time;
+            } else {
+                state.chartSettings.runDepth = state.chartSettings.customDepth;
+                state.chartSettings.runTime = state.chartSettings.customTime;
+            }
 
             state.customArrows = [];
             
@@ -2411,22 +2636,70 @@ export function initEvents() {
             }
 
             import('./engine.js').then(engine => {
-                // ÉP DỪNG ĐỘNG CƠ ĐANG CHẠY PHÂN TÍCH
                 engine.forceStopEngine(); 
                 
-                // GIẢI QUYẾT LỖI CHAIN REACTION: Đợi 300ms cho AI xả hết rác "bestmove" cũ ra ngoài
                 setTimeout(() => {
                     state.isChartRunning = true;
                     state.isChartDrawing = true;
                     document.body.classList.add('chart-running', 'chart-drawing'); 
                     
                     if (btnChart) btnChart.classList.add('tool-active');
-                    showToast(`Đang vẽ biểu đồ tự động...`);
                     
-                    // LÚC NÀY MỚI BẮT ĐẦU CHẠY BIỂU ĐỒ
                     engine.startChartAnalysisProcess();
                 }, 300);
             });
+        };
+    }
+
+    // SỰ KIỆN NÚT CHÚ GIẢI BIỂU ĐỒ (LEGEND)
+    const btnChartLegend = document.getElementById('btn-chart-legend');
+    if (btnChartLegend) {
+        btnChartLegend.onclick = () => {
+            if (state.isChartDrawing || !state.isChartAnalyzed) return;
+
+            const container = document.getElementById('legend-list-container');
+            if (container) {
+                // Dữ liệu mapping chuẩn với hàm phân loại analyzer.js (Bỏ missed_win)
+                const legendData = [
+                    { id: 'best',       name: 'Tốt nhất',        percent: '98 - 100%' },
+                    { id: 'excellent',  name: 'Xuất sắc',        percent: '90 - 97%' },
+                    { id: 'good',       name: 'Tốt',             percent: '80 - 89%' },
+                    { id: 'balanced',   name: 'Cân bằng',        percent: '70 - 79%' },
+                    { id: 'inaccuracy', name: 'Thiếu chính xác', percent: '55 - 69%' },
+                    { id: 'mistake',    name: 'Sai lầm',         percent: '40 - 54%' },
+                    { id: 'blunder',    name: 'Sai lầm nặng',    percent: '0 - 39%' }
+                ];
+
+                let htmlContent = '';
+                
+                // Render danh sách nhãn dán
+                legendData.forEach(item => {
+                    htmlContent += `
+                        <div class="legend-row">
+                            <img class="legend-icon" src="style/tags/${item.id}.webp" alt="${item.name}">
+                            <span class="legend-name">${item.name} :</span>
+                            <div class="legend-dots"></div>
+                            <span class="legend-desc">Phù hợp ${item.percent}</span>
+                        </div>
+                    `;
+                });
+
+                // Render Mũi tên AI ở dưới cùng
+                htmlContent += `
+                    <div class="legend-row" style="margin-top: 10px; border-top: 1px solid #eee; padding-top: 15px;">
+                        <svg viewBox="0 0 24 24" fill="#008a3eb9" style="width: 26px; height: 26px; margin-right: 17px; filter: drop-shadow(1px 2px 2px rgba(0,0,0,0.2));">
+                            <path d="M12 2L2 12h5v8h10v-8h5L12 2z"/>
+                        </svg>
+                        <span class="legend-desc" style="color: #008a3eb9; font-weight: bold; text-align: left; flex: 1;">
+                            Mũi tên màu xanh lá = Nước đi được AI đề xuất.
+                        </span>
+                    </div>
+                `;
+
+                container.innerHTML = htmlContent;
+            }
+
+            import('./ui.js').then(ui => ui.openModal('chart-legend-modal'));
         };
     }
 }

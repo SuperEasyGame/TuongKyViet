@@ -274,14 +274,13 @@ function updateVirtualList() {
     }
 }
 export function showAILoading() {
-    if (state.appMode === 'analyze' || state.appMode === 'blind') return;
+    if (!state.isChartRunning && (state.appMode === 'analyze' || state.appMode === 'blind')) return;
     
     const spinner = document.getElementById('ai-thinking-spinner');
     if (spinner) spinner.style.display = 'block';
 }
+
 export function hideAILoading() {
-    if (state.appMode === 'analyze' || state.appMode === 'blind') return;
-    
     const spinner = document.getElementById('ai-thinking-spinner');
     if (spinner) spinner.style.display = 'none';
 }
@@ -738,5 +737,172 @@ export function syncBookTabUI() {
         if (cloudTab) {
             cloudTab.innerText = currentType === 'local' ? "Local Book" : "Cloud Book";
         }
+    }
+}
+
+// ==========================================
+// HƯỚNG DẪN THANH CÔNG CỤ (TOUR GUIDE)
+// ==========================================
+// 1. Kho dữ liệu cấu hình các công cụ
+const GUIDE_DATA = [
+    { id: 'guide-menu', selector: '#btn-menu', title: 'Menu', desc: 'Mở danh sách các chế độ chơi, thư viện và cài đặt', modes: ['analyze', 'vsbot', 'blind', 'puzzle', 'memorize'], icon: '<path d="M4 5h16"/><path d="M4 12h16"/><path d="M4 19h16"/>' },
+    { id: 'guide-newgame', selector: '#btn-new-game', title: 'Ván mới', desc: 'Xoá ván hiện tại, về thế cờ ban đầu', modes: ['analyze', 'vsbot', 'blind', 'puzzle', 'memorize'], icon: '<path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="M9 15h6"/><path d="M12 18v-6"/>' },
+    { id: 'guide-undo', selector: '#btn-undo', title: 'Đi lại', desc: 'Lùi lại một nước cờ nếu bạn đi sai', modes: ['vsbot', 'puzzle', 'memorize'], icon: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11"/>' },
+    { id: 'guide-hint', selector: '#btn-hint', title: 'Gợi ý', desc: 'Nhờ Máy đi hộ một nước cờ', modes: ['vsbot', 'puzzle'], icon: '<path stroke="none" d="M0 0h24v24H0z" fill="none" /><path d="M3 12h1m8 -9v1m8 8h1m-15.4 -6.4l.7 .7m12.1 -.7l-.7 .7" /><path d="M9 16a5 5 0 1 1 6 0a3.5 3.5 0 0 0 -1 3a2 2 0 0 1 -4 0a3.5 3.5 0 0 0 -1 -3" /><path d="M9.7 17l4.6 0" />' },
+    { id: 'guide-ai-red', selector: '#btn-ai-red', title: 'Máy cầm Đỏ', desc: 'Máy đi quân Đỏ', modes: ['analyze', 'blind'], icon: '<rect width="18" height="12" x="3" y="4" rx="2" ry="2"/><line x1="2" x2="22" y1="20" y2="20"/>', stroke: '#ff0000' },
+    { id: 'guide-ai-black', selector: '#btn-ai-black', title: 'Máy cầm Đen', desc: 'Máy đi quân Đen', modes: ['analyze', 'blind'], icon: '<rect width="18" height="12" x="3" y="4" rx="2" ry="2"/><line x1="2" x2="22" y1="20" y2="20"/>' },
+    { id: 'guide-analyze', selector: '#btn-analyze', title: 'Phân tích', desc: 'Máy liên tục chấm điểm thế cờ và gợi ý nước đi', modes: ['analyze'], icon: '<path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/>' },
+    { id: 'guide-instant', selector: '#btn-go-instant', title: 'Đi ngay', desc: 'Đi nước tốt nhất hiện tại của máy mà không chờ', modes: ['analyze'], icon: '<path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/>' },
+    { id: 'guide-chart', selector: '#btn-chart', title: 'Biểu đồ', desc: 'Phân tích và đánh giá toàn bộ ván cờ', modes: ['analyze'], icon: '<path d="M12 16v5"/><path d="M16 14.639V21"/><path d="M20 10.656V21"/><path d="m22 3-8.646 8.646a.5.5 0 0 1-.708 0L9.354 8.354a.5.5 0 0 0-.707 0L2 15"/><path d="M4 18.463V21"/><path d="M8 14.656V21"/>' },
+    { id: 'guide-flip', selector: '#btn-flip', title: 'Lật bàn cờ', desc: 'Xoay ngược bàn cờ để đổi góc nhìn Đỏ/Đen.', modes: ['analyze', 'vsbot', 'blind', 'puzzle', 'memorize'], icon: '<path d="m17 3-5 5-5-5h10"/><path d="m17 21-5-5-5 5h10"/><path d="M4 12H2"/><path d="M10 12H8"/><path d="M16 12h-2"/><path d="M22 12h-2"/>' },
+    { id: 'guide-import', selector: '#btn-import', title: 'Nhập', desc: 'Dán nước đi, mở tệp ván cờ hoặc nhận dạng ảnh bàn cờ', modes: ['analyze', 'vsbot'], icon: '<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/><path d="M12 10v6"/><path d="m9 13 3-3 3 3"/>' },
+    { id: 'guide-export', selector: '#btn-export', title: 'Xuất & Lưu', desc: 'Lưu vào thư viện hoặc tải file, copy file', modes: ['analyze', 'vsbot', 'puzzle'], icon: '<path d="M21 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h6"/><path d="m21 3-9 9"/><path d="M15 3h6v6"/>' },
+    { id: 'guide-peek', selector: '#btn-peek', title: 'Hiện / Úp cờ', desc: 'Ẩn hoặc hiện quân cờ trên bàn cờ', modes: ['blind'], icon: '<path d="m15 18-.722-3.25"/><path d="M2 8a10.645 10.645 0 0 0 20 0"/><path d="m20 15-1.726-2.05"/><path d="m4 15 1.726-2.05"/><path d="m9 18 .722-3.25"/>' },
+    { id: 'guide-edit', selector: '#btn-edit', title: 'Xếp thế cờ', desc: 'Xếp quân tự do rồi phân tích từ thế cờ đó', modes: ['analyze', 'vsbot', 'blind'], icon: '<path d="M13.4 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7.4"/><path d="M2 6h4"/><path d="M2 10h4"/><path d="M2 14h4"/><path d="M2 18h4"/><path d="M21.378 5.626a1 1 0 1 0-3.004-3.004l-5.01 5.012a2 2 0 0 0-.506.854l-.837 2.87a.5.5 0 0 0 .62.62l2.87-.837a2 2 0 0 0 .854-.506z"/>' },
+    { id: 'guide-nav-prev', selector: '#btn-prev', title: 'Lùi / Tiến 1 bước', desc: 'Lùi hoặc tiến một nước trên nhánh hiện tại', modes: ['analyze', 'blind'], icon: '<svg viewBox="0 0 1024 1024"><path fill="#515151" d="m384 512 347.733-309.333C748.8 187.733 750.933 160 736 142.933c-14.933-17.066-42.667-19.2-59.733-4.266L292.267 480c-10.667 8.533-14.934 19.2-14.934 32s4.267 23.467 14.934 32l384 341.333C684.8 891.733 695.467 896 704 896c12.8 0 23.467-4.267 32-14.933 14.933-17.067 14.933-44.8-4.267-59.734z"></path></svg>', customSvg: true },
+    { id: 'guide-autoplay', selector: '#btn-auto-play', title: 'Tự động phát', desc: 'Tự động đi tiếp các nước cờ theo thời gian (Hữu ích khi xem lại ván đấu)', modes: ['analyze', 'blind'], icon: '<path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z"/>' },
+    { id: 'guide-nav-end', selector: '#btn-end', title: 'Đầu / Cuối', desc: 'Nhảy tới thế cờ có biến trước hoặc sau, không có thì về đầu hoặc cuối', modes: ['analyze', 'blind'], icon: '<svg viewBox="0 0 1024 1024"><path fill="#515151" d="M544 522.667c0-8.534-4.267-17.067-10.667-23.467L192 189.867c-12.8-12.8-34.133-10.667-44.8 2.133-12.8 12.8-10.667 34.133 2.133 44.8l315.734 285.867-315.734 285.866c-12.8 12.8-14.933 32-2.133 44.8 6.4 6.4 14.933 10.667 23.467 10.667s14.933-2.133 21.333-8.533l341.333-309.334c6.4-6.4 10.667-14.933 10.667-23.466"></path><path fill="#515151" d="M864 499.2 522.667 189.867c-12.8-12.8-34.134-10.667-44.8 2.133-12.8 12.8-10.667 34.133 2.133 44.8l315.733 285.867L480 808.533c-12.8 12.8-14.933 32-2.133 44.8 6.4 6.4 14.933 10.667 23.466 10.667s14.934-2.133 21.334-8.533L864 546.133c6.4-6.4 10.667-14.933 10.667-23.466S870.4 505.6 864 499.2"></path></svg>', customSvg: true },
+    { id: 'guide-history', selector: '#panel-history', title: 'Biên bản nước đi', desc: 'Chọn nước đi để xem biến thể và chú thích. Bật “Hiện trên bàn cờ” để xem các biến thể.', modes: ['analyze', 'vsbot','puzzle'], icon: '<path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10.4 12.6a2 2 0 1 1 3 3L8 21l-4 1 1-4Z"/><path d="M20 18v-5.5L14 2H6a2 2 0 0 0-2 2v9"/>' },
+    { id: 'guide-ai', selector: '#panel-ai', title: 'Khu vực Thông tin', desc: 'Chứa dữ liệu điểm số từ Máy tính, Sách khai cuộc, Biểu đồ và Ghi chú.', modes: ['analyze', 'vsbot', 'blind', 'puzzle', 'memorize'], icon: '<path stroke="none" d="M0 0h24v24H0z" fill="none" /><path d="M4 6a2 2 0 0 1 2 -2h12a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2l0 -12" /><path d="M4 12l16 0" /><path d="M12 4l0 16" />' }
+];
+
+
+let guideResizeObserver = null;
+let highlightTrackingFrame = null; // Biến theo dõi animation
+
+// Hàm đo và gán tọa độ cho khung xanh giả
+function updateHighlightBox(targetEl) {
+    const highlightBox = document.getElementById('guide-highlight-box');
+    if (!highlightBox || !targetEl) return;
+
+    highlightBox.style.display = 'block';
+
+    // Hàm track liên tục tọa độ (dùng khi màn hình đang cuộn smooth scroll)
+    const trackPosition = () => {
+        const rect = targetEl.getBoundingClientRect();
+        
+        // Gán đúng kích thước và vị trí cho khung giả
+        highlightBox.style.top = `${rect.top}px`;
+        highlightBox.style.left = `${rect.left}px`;
+        highlightBox.style.width = `${rect.width}px`;
+        highlightBox.style.height = `${rect.height}px`;
+
+        highlightTrackingFrame = requestAnimationFrame(trackPosition);
+    };
+
+    if (highlightTrackingFrame) cancelAnimationFrame(highlightTrackingFrame);
+    trackPosition();
+
+    // Dừng track sau 800ms (thời gian dư dả để quá trình scrollIntoView chạy xong)
+    setTimeout(() => {
+        if (highlightTrackingFrame) {
+            cancelAnimationFrame(highlightTrackingFrame);
+            highlightTrackingFrame = null;
+        }
+    }, 800);
+}
+
+function syncGuidePanelPosition() {
+    const content = document.getElementById('guide-modal-content');
+    const boardArea = document.getElementById('chess-board-area');
+    if (!content || !boardArea) return;
+
+    const rect = boardArea.getBoundingClientRect();
+    const gWidth = rect.width * 0.8;
+    const gHeight = rect.height * 0.9;
+    const top = rect.top + (rect.height - gHeight) / 2;
+    const left = rect.left + (rect.width - gWidth) / 2;
+
+    content.style.setProperty('width', `${gWidth}px`, 'important');
+    content.style.setProperty('height', `${gHeight}px`, 'important');
+    content.style.setProperty('top', `${top}px`, 'important');
+    content.style.setProperty('left', `${left}px`, 'important');
+    content.style.setProperty('z-index', `2005`, 'important'); // Nâng cái bảng lên cao nhất
+}
+
+export function openGuidePanel() {
+    const modal = document.getElementById('guide-modal');
+    const container = document.getElementById('guide-list-container');
+    if (!modal || !container) return;
+
+    const currentMode = state.appMode || 'analyze';
+    const activeTools = GUIDE_DATA.filter(tool => tool.modes.includes(currentMode));
+
+    container.innerHTML = '';
+    
+    activeTools.forEach((tool, index) => {
+        const strokeColor = tool.stroke || '#000000';
+        const svgContent = tool.customSvg ? tool.icon : `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="${strokeColor}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">${tool.icon}</svg>`;
+
+        const item = document.createElement('div');
+        item.className = 'guide-item';
+        item.innerHTML = `
+            <div class="guide-num">${index + 1}</div>
+            <div class="guide-icon-box">${svgContent}</div>
+            <div class="guide-text-box">
+                <div class="guide-title">${tool.title}</div>
+                <div class="guide-desc">${tool.desc}</div>
+            </div>
+        `;
+
+        item.onclick = () => {
+            container.querySelectorAll('.guide-item').forEach(el => el.classList.remove('guide-item-active'));
+            item.classList.add('guide-item-active');
+
+            clearUIHighlight();
+            const targetEl = document.querySelector(tool.selector);
+            if (targetEl) {
+                targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                updateHighlightBox(targetEl); // Vẽ khung giả lên target
+            }
+        };
+
+        container.appendChild(item);
+    });
+
+    if (container.firstChild) container.firstChild.click();
+
+    syncGuidePanelPosition();
+
+    if (!guideResizeObserver) {
+        guideResizeObserver = () => {
+            syncGuidePanelPosition();
+            // Cập nhật lại khung highlight nếu màn hình xoay/resize
+            const activeItem = container.querySelector('.guide-item-active');
+            if (activeItem) activeItem.click(); 
+        };
+        window.addEventListener('resize', guideResizeObserver);
+        window.addEventListener('orientationchange', () => setTimeout(guideResizeObserver, 200));
+    }
+
+    modal.style.display = 'block';
+    setTimeout(() => { modal.classList.add('show'); }, 30);
+}
+
+export function closeGuidePanel() {
+    const modal = document.getElementById('guide-modal');
+    if (!modal) return;
+    
+    clearUIHighlight();
+    
+    if (guideResizeObserver) {
+        window.removeEventListener('resize', guideResizeObserver);
+        window.removeEventListener('orientationchange', guideResizeObserver);
+        guideResizeObserver = null;
+    }
+    
+    modal.classList.remove('show');
+    setTimeout(() => { modal.style.display = 'none'; }, 300);
+}
+
+function clearUIHighlight() {
+    // Tắt hiển thị khung giả
+    const highlightBox = document.getElementById('guide-highlight-box');
+    if (highlightBox) highlightBox.style.display = 'none';
+    
+    // Dừng vòng lặp tính tọa độ
+    if (highlightTrackingFrame) {
+        cancelAnimationFrame(highlightTrackingFrame);
+        highlightTrackingFrame = null;
     }
 }

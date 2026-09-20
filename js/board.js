@@ -43,11 +43,12 @@ export function preloadImages() {
         });
 
         const pieceKeys = Object.keys(PIECE_MAP);
-        const extraImages = ['shadow', 'dot', 'from', 'to', 'selection']; // ĐÃ RÚT board VÀ blind RA
+        const extraImages = ['shadow', 'dot', 'from', 'to', 'selection'];
+        const tagImages = ['best', 'excellent', 'good', 'balanced', 'inaccuracy', 'mistake', 'blunder'];
         const blindPieces = ['blind_b', 'blind_w']; 
         
         let loadedCount = 0;
-        const totalImages = pieceKeys.length + extraImages.length + blindPieces.length + 1; // +1 cho Board
+        const totalImages = pieceKeys.length + extraImages.length + tagImages.length + blindPieces.length + 1;
 
         const checkDone = () => {
             loadedCount++;
@@ -66,9 +67,20 @@ export function preloadImages() {
         // Tải ảnh UI (bóng, chấm...)
         extraImages.forEach(imgName => {
             const img = new Image();
-            img.src = `style/${imgName}.webp`;
+            if (['best', 'excellent', 'good', 'inaccuracy', 'mistake', 'blunder'].includes(imgName)) {
+                img.src = `style/tags/${imgName}.webp`;
+            } else {
+                img.src = `style/${imgName}.webp`;
+            }
             img.onload = () => { imageCache[imgName] = img; checkDone(); };
             img.onerror = () => { checkDone(); };
+        });
+
+        tagImages.forEach(tagName => {
+            const img = new Image();
+            img.src = `style/tags/${tagName}.webp`;
+            img.onload = () => { imageCache[tagName] = img; checkDone(); };
+            img.onerror = () => { checkDone(); }; // Vẫn gọi checkDone để không bị kẹt nếu thiếu ảnh
         });
         
         // Tải ảnh Mù
@@ -257,6 +269,7 @@ function getLogicPosFromEvent(event) {
 function handlePointerDown(e) {
     if (state.isEditMode || state.isChartRunning || state.isChartDrawing) return;
     if (state.selectedSquare !== null) return; // Không cho vẽ khi đang click chọn quân
+    if (state.appSettings.allowCustomArrows === false) return;
 
     const { logicX, logicY } = getLogicPosFromEvent(e);
     if (logicX < 0 || logicX > 8 || logicY < 0 || logicY > 9) return;
@@ -340,6 +353,7 @@ function renderLoop() {
     drawLastMoveHighlights();
     drawStaticPieces();          // Vẽ các quân cờ bình thường trước
     drawAnimatingPiece();        // Vẽ quân đang bay
+    drawMoveBadge();             // Vẽ Nhãn đè lên quân cờ
     drawSelectedPiece();         // <--- VẼ QUÂN ĐANG CHỌN PHÁT SÁNG NỔI LÊN TRÊN
     drawLegalMoveDots();         // Vẽ chấm xanh nước đi
     drawBestMoveArrowCanvas();   // Vẽ mũi tên AI
@@ -602,96 +616,119 @@ function drawAnimatingPiece() {
 }
 
 function drawBestMoveArrowCanvas() {
-    if (state.pvLines.length === 0 || state.isAnimating || state.isEditMode || state.appMode === 'vsbot' 
+    if (state.pvLines.length === 0 && !state.isChartAnalyzed) return;
+    if (state.isAnimating || state.isEditMode || state.appMode === 'vsbot' 
         || state.appMode === 'blind' || state.appMode === 'memorize' || state.appMode === 'puzzle') return;
-    // Kiểm tra xem Động cơ AI có đang được bật hay không (Phân tích, Máy cầm Đỏ, Máy cầm Đen)
+        
     const isAILive = state.isAnalyzing || state.aiPlaysRed || state.aiPlaysBlack;
-    // NẾU Cài đặt Tắt Mũi tên NHƯNG AI đã bị tắt -> Vẫn vẽ mũi tên đóng băng cuối cùng!
     if (!state.appSettings.arrows && isAILive) return;
 
-    state.pvLines.forEach(line => {
-        if (!line) return;
+    // --- HÀM VẼ ĐA GIÁC MŨI TÊN (Giữ nguyên cấu trúc của bạn) ---
+    const drawSingleArrow = (move, color, rankText) => {
+        if (!move || move.length !== 4) return;
+        const fXY = vschess.i2b[move.substring(0, 2)];
+        const tXY = vschess.i2b[move.substring(2, 4)];
+        const p1 = getCanvasCoords(fXY % 9, Math.floor(fXY / 9));
+        const p2 = getCanvasCoords(tXY % 9, Math.floor(tXY / 9));
 
-        // Hàm helper để vẽ 1 mũi tên đa giác
-        const drawSingleArrow = (move, color, rank) => {
-            if (!move) return;
+        const dx = p2.cx - p1.cx; const dy = p2.cy - p1.cy;
+        const angle = Math.atan2(dy, dx);
+        const distance = Math.sqrt(dx * dx + dy * dy);
 
-            const fXY = vschess.i2b[move.substring(0, 2)];
-            const tXY = vschess.i2b[move.substring(2, 4)];
-            const p1 = getCanvasCoords(fXY % 9, Math.floor(fXY / 9));
-            const p2 = getCanvasCoords(tXY % 9, Math.floor(tXY / 9));
+        const headLength = pieceSize * 0.3;      
+        const headWidth = pieceSize * 0.45;       
+        const tailStartWidth = pieceSize * 0.03; 
+        const tailEndWidth = pieceSize * 0.2;   
 
-            // Tính toán góc xoay và khoảng cách giữa 2 điểm
-            const dx = p2.cx - p1.cx;
-            const dy = p2.cy - p1.cy;
-            const angle = Math.atan2(dy, dx);
-            const distance = Math.sqrt(dx * dx + dy * dy);
+        ctx.save();
+        ctx.translate(p1.cx, p1.cy);
+        ctx.rotate(angle);
+        ctx.beginPath();
+        ctx.moveTo(0, tailStartWidth / 2);                    
+        ctx.lineTo(distance - headLength, tailEndWidth / 2);  
+        ctx.lineTo(distance - headLength, headWidth / 2);     
+        ctx.lineTo(distance, 0);                              
+        ctx.lineTo(distance - headLength, -headWidth / 2);    
+        ctx.lineTo(distance - headLength, -tailEndWidth / 2); 
+        ctx.lineTo(0, -tailStartWidth / 2);                   
+        ctx.closePath();
+        ctx.fillStyle = color;
+        ctx.fill();       
+        ctx.restore(); 
 
-            // KÍCH THƯỚC CẤU TẠO MŨI TÊN (có thể tinh chỉnh nếu muốn)
-            const headLength = pieceSize * 0.3;      // Chiều dài chóp mũi tên
-            const headWidth = pieceSize * 0.45;       // Chiều rộng chóp mũi tên
-            const tailStartWidth = pieceSize * 0.03; // Độ rộng phần đuôi (nơi xuất phát) - Rất mỏng
-            const tailEndWidth = pieceSize * 0.2;   // Độ rộng phần cổ (nơi nối với chóp) - To hơn
+        const textOffset = headLength * 0.65;
+        const textX = p2.cx - Math.cos(angle) * textOffset;
+        const textY = p2.cy - Math.sin(angle) * textOffset;
 
-            ctx.save();
-            // Dời tâm Canvas về điểm xuất phát và xoay theo hướng mũi tên
-            ctx.translate(p1.cx, p1.cy);
-            ctx.rotate(angle);
+        ctx.fillStyle = "white"; 
+        ctx.font = `bold ${pieceSize * 0.2}px Arial`;
+        ctx.textAlign = "center"; 
+        ctx.textBaseline = "middle";
+        ctx.fillText(rankText, textX, textY + 1); 
+    };
 
-            // VẼ PATH HÌNH DÁNG MŨI TÊN
-            ctx.beginPath();
-            ctx.moveTo(0, tailStartWidth / 2);                    // 1. Trên cùng của đuôi
-            ctx.lineTo(distance - headLength, tailEndWidth / 2);  // 2. Trên cùng của cổ
-            ctx.lineTo(distance - headLength, headWidth / 2);     // 3. Cạnh trên của chóp
-            ctx.lineTo(distance, 0);                              // 4. Đỉnh mũi tên (Điểm đích)
-            ctx.lineTo(distance - headLength, -headWidth / 2);    // 5. Cạnh dưới của chóp
-            ctx.lineTo(distance - headLength, -tailEndWidth / 2); // 6. Dưới cùng của cổ
-            ctx.lineTo(0, -tailStartWidth / 2);                   // 7. Dưới cùng của đuôi
-            ctx.closePath();
-
-            // Tô màu trong suốt (theo đúng mã màu Hex 8 kí tự bạn truyền vào)
-            ctx.fillStyle = color;
-            ctx.fill();       
-
-            ctx.restore(); // Trả Canvas về trạng thái cũ để vẽ Text không bị lộn ngược
-
-            // VẼ CHỮ SỐ (LUÔN NẰM NGANG, KHÔNG BỊ XOAY)
-            // Lùi lại một khoảng từ điểm đích để chữ rơi đúng vào giữa chóp mũi tên
-            const textOffset = headLength * 0.65;
-            const textX = p2.cx - Math.cos(angle) * textOffset;
-            const textY = p2.cy - Math.sin(angle) * textOffset;
-
-            ctx.fillStyle = "white"; 
-            ctx.font = `bold ${pieceSize * 0.2}px Arial`;
-            ctx.textAlign = "center"; 
-            ctx.textBaseline = "middle";
-            ctx.fillText(rank, textX, textY + 1); 
-        };
-
-        // Vẽ mũi tên nước đi chính (Xanh lá mờ theo Hex 8-digit)
-        if (line.bestMove) {
-            drawSingleArrow(line.bestMove, "#4caf4fbd", line.rank);
-        }
+    // 1. TRƯỜNG HỢP SAU KHI PHÂN TÍCH: VẼ MŨI TÊN "AI" NẾU ĐI LỖI
+    if (state.isChartAnalyzed && state.currentNode && state.currentNode.parent) {
+        const cls = state.currentNode.classification;
+        const aiMove = state.currentNode.parent.aiBestMove;
         
-        // Vẽ mũi tên nước đi dự đoán của đối thủ (Hồng mờ theo Hex 8-digit)
-        if (line.ponderMove) {
-            drawSingleArrow(line.ponderMove, "#ff4080b9", line.rank);
+        // Nếu nước hiện tại bị đánh giá là lỗi (inaccuracy, mistake, blunder) và có nước đề xuất
+        if (['balanced', 'inaccuracy', 'mistake', 'blunder', 'missed_win'].includes(cls) && aiMove) {
+            drawSingleArrow(aiMove, "#008a3eb9", "AI");
+            return; 
         }
-    });
+    }
+
+    // 2. TRƯỜNG HỢP BÌNH THƯỜNG: VẼ MŨI TÊN PV (1, 2, 3...)
+    if (state.pvLines.length > 0) {
+        state.pvLines.forEach(line => {
+            if (!line) return;
+            if (line.bestMove) drawSingleArrow(line.bestMove, "#4caf4fbd", line.rank);
+            if (line.ponderMove) drawSingleArrow(line.ponderMove, "#ff4080b9", line.rank);
+        });
+    }
 }
 
-// ==========================================
+function drawMoveBadge() {
+    // Chỉ vẽ khi biểu đồ đã chạy xong, không ở chế độ xếp quân, và nước cờ có nhãn
+    if (!state.isChartAnalyzed || !state.lastMove || state.isEditMode || !state.currentNode || !state.currentNode.classification) return;
+
+    const toIccs = state.lastMove.substring(2, 4);
+    const toXY = vschess.i2b[toIccs];
+    const p2 = getCanvasCoords(toXY % 9, Math.floor(toXY / 9));
+
+    // Xử lý ngoại lệ: Nếu là missed_win thì dùng ảnh blunder
+    let badgeName = state.currentNode.classification;
+    if (badgeName === 'missed_win') badgeName = 'blunder';
+
+    const badgeImg = imageCache[badgeName];
+    
+    if (badgeImg) {
+        const badgeSize = Math.round(pieceSize * 0.45); 
+        
+        // Tọa độ X: Đẩy sang góc phải
+        const bx = Math.round(p2.cx) + Math.round(pieceSize / 4) - Math.round(badgeSize * 0.15);
+        // Tọa độ Y: Đẩy lên góc trên
+        const by = Math.round(p2.cy) - Math.round(pieceSize / 2) - Math.round(badgeSize * 0.15);
+        
+        ctx.drawImage(badgeImg, bx, by, badgeSize, badgeSize);
+    }
+}
+
 // CÁC HÀM "BÙ NHÌN" ĐỂ TRÁNH LỖI IMPORT Ở CÁC FILE KHÁC
-// ==========================================
 export function renderBoardFull(situation) { state.currentSituation = situation; }
 export function clearDots() {}
 export function clearArrow() {}
 export function drawLastMoveDots() {}
 export function drawBestMoveArrow() {}
 
-// ==========================================
+export function hasRealComment(commentStr) {
+    if (!commentStr) return false;
+    let parts = commentStr.split("-------------------\n");
+    let text = parts.length > 1 ? parts[1] : parts[0];
+    return text.trim() !== "";
+}
 // RENDER LỊCH SỬ NƯỚC ĐI
-// ==========================================
 export function renderMoveHistory() {
     const container = document.getElementById('move-list-container');
     container.innerHTML = ''; 
@@ -716,26 +753,36 @@ export function renderMoveHistory() {
             if (i > state.currentStepNum) btn.classList.add('move-future');
             
             const wasRedMove = node.fen.split(" ")[1] === "b";
-            
-            // Lấy số Round thực tế từ FEN
             let rawRoundNum = parseInt(node.roundNum, 10);
             if (isNaN(rawRoundNum) || rawRoundNum === 0) rawRoundNum = 1;
 
-            // BƯỚC 2: CÔNG THỨC BÙ TRỪ 
-            // Nếu Đen đi trước -> Trừ đi 1 để Đỏ hiển thị đúng số 1
             let displayRoundNum = rawRoundNum - (isRootBlack ? 1 : 0);
-            if (displayRoundNum < 1) displayRoundNum = 1; // Đảm bảo không bao giờ < 1
+            if (displayRoundNum < 1) displayRoundNum = 1; 
             
-            let htmlStr = '';
-            // Gắn displayRoundNum vào html của quân Đỏ
-            if (wasRedMove) htmlStr = `<span class="move-num">${displayRoundNum}.</span> <span class="move-text text-red">${node.notation}</span>`;
-            else htmlStr = `<span class="move-num"></span> <span class="move-text text-black">${node.notation}</span>`;
+            let moveColor = wasRedMove ? 'text-red' : 'text-black';
+            let numHtml = wasRedMove ? `<span class="move-num">${displayRoundNum}.</span>` : `<span class="move-num"></span>`;
 
-            if (node.parent && node.parent.children.length > 1) {
-                const badgeClass = wasRedMove ? 'var-red' : 'var-black';
-                htmlStr += `<span class="var-badge ${badgeClass}">(*)</span>`;
-            }
-            btn.innerHTML = htmlStr;
+            // === TÍNH TOÁN SỐ LƯỢNG BIẾN VÀ GHI CHÚ ===
+            let variationsCount = (node.parent && node.parent.children.length > 1) ? node.parent.children.length : 0;
+            let hasComment = hasRealComment(node.comment);
+
+            let badgeText = "";
+            if (variationsCount > 0 && hasComment) badgeText = `${variationsCount} biến &nbsp;&nbsp; G.Chú`;
+            else if (variationsCount > 0) badgeText = `${variationsCount} biến`;
+            else if (hasComment) badgeText = `G.Chú`;
+
+            let badgeHtml = badgeText ? `<span class="move-badge">${badgeText}</span>` : '';
+
+            // === RÁP HTML MỚI HỖ TRỢ RESPONSIVE ===
+            btn.innerHTML = `
+                <div class="move-content-wrapper">
+                    <div class="move-main-text">
+                        ${numHtml}
+                        <span class="move-text ${moveColor}">${node.notation}</span>
+                    </div>
+                    ${badgeHtml}
+                </div>
+            `;
         }
         
         if (i === state.currentStepNum) {
@@ -774,5 +821,38 @@ export function renderMoveHistory() {
 
     if (state.isChartRunning && !state.isChartDrawing) {
         import('./chart.js').then(chart => chart.refreshChartUI());
+    }
+    const reviewBox = document.getElementById('review-container');
+    if (reviewBox && reviewBox.style.display !== 'none') {
+        import('./chart.js').then(chart => {
+            chart.resetReviewCache(); 
+            chart.updateReviewUI();
+        });
+    }
+}
+
+export function updateActiveMoveBadge() {
+    const activeBtn = document.getElementById('active-move-btn');
+    if (!activeBtn || !state.currentNode) return;
+    
+    let variationsCount = (state.currentNode.parent && state.currentNode.parent.children.length > 1) ? state.currentNode.parent.children.length : 0;
+    let hasComment = hasRealComment(state.currentNode.comment);
+
+    let badgeText = "";
+    if (variationsCount > 0 && hasComment) badgeText = `${variationsCount} biến &nbsp;&nbsp; G.Chú`;
+    else if (variationsCount > 0) badgeText = `${variationsCount} biến`;
+    else if (hasComment) badgeText = `G.Chú`;
+
+    let wrapper = activeBtn.querySelector('.move-content-wrapper');
+    let badgeSpan = activeBtn.querySelector('.move-badge');
+    
+    if (badgeText) {
+        if (badgeSpan) {
+            badgeSpan.innerHTML = badgeText;
+        } else if (wrapper) {
+            wrapper.insertAdjacentHTML('beforeend', `<span class="move-badge">${badgeText}</span>`);
+        }
+    } else {
+        if (badgeSpan) badgeSpan.remove();
     }
 }

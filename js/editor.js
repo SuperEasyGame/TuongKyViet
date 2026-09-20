@@ -1,5 +1,6 @@
 // js/editor.js
-import { state } from './state.js';
+import { state, storage } from './state.js';
+import { saveGameState } from './io.js';
 import { showToast, updateTurnToggleUI, openModal } from './ui.js';
 import { renderBoardFull, renderMoveHistory} from './board.js';
 import { initGame, forceStopAIPlayers, updateVsBotToolButtons } from './game.js';
@@ -113,6 +114,14 @@ export function turnOnEditMode(btn) {
     state.editTurn = state.preEditTurn;
     updateTurnToggleUI();
     import('./game.js').then(module => module.syncNavbarWidth());
+    import('./timer.js').then(t => {
+        t.PlayerTimer.stop();
+        if (state.appMode === 'vsbot' && state.vsBotSettings.useTimer) {
+            state.vsBotSettings.remainingTimeMs = t.PlayerTimer.getRemainingMs();
+            import('./state.js').then(m => m.storage.saveVsBot(state.vsBotSettings));
+            import('./io.js').then(io => io.saveGameState());
+        }
+    });
 }
 
 export function finishEditing(btn) {
@@ -159,7 +168,7 @@ export function finishEditing(btn) {
     if (newFenBase !== state.preEditFenBase || state.editTurn !== state.preEditTurn) {
         if (state.appMode === 'vsbot') {
             state.vsBotSetupOrigin = 'edit_mode'; 
-            document.getElementById('setup-bot-fen').value = newFenFull;
+            state.pendingBotFen = newFenFull;
             document.getElementById('setup-bot-style').value = state.vsBotSettings.botStyle || 'standard';
             openModal('vsbot-setup-modal');
         } else {
@@ -180,6 +189,9 @@ export function finishEditing(btn) {
             else state.aiPlaysBlack = true;
             updateVsBotToolButtons();
         }
-        import('./game.js').then(module => module.syncNavbarWidth());
+        import('./game.js').then(module => {
+            module.syncNavbarWidth();
+            module.syncPlayerTimer();
+        });
     }
 }

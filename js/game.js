@@ -8,6 +8,7 @@ import { initPikafish, triggerEngineEvaluation } from './engine.js'; // Đã xó
 import { handleEditSquareClick } from './editor.js';
 import { formatGameInfoString, mergeGameInfo, saveGameState } from './io.js';
 import { checkDraw60Moves, getStrictLegalMoves } from './rules.js';
+import { PlayerTimer } from './timer.js';
 
 const audioCache = {
     move: new Audio('sound/move.mp3'),
@@ -54,15 +55,47 @@ function updateBotTitleBoard() {
     let isBotTurn = false;
     let titleText = "";
     let infoRows = "";
-    let limitRow = ""; // Khai báo biến rỗng riêng biệt cho dòng giới hạn
+    let limitRow = ""; 
+    let timeHtml = ""; // CHỨA GIAO DIỆN THỜI GIAN
 
     if (state.appMode === 'vsbot') {
         isBotTurn = (state.vsBotSettings.botColor === 'red' && isRedTurn) || (state.vsBotSettings.botColor === 'black' && !isRedTurn);
+        const playerColor = state.vsBotSettings.botColor === 'red' ? 'black' : 'red'; // Màu của Người chơi
+        
         titleText = "ĐẤU VS BOT";
         infoRows = `
             <div class="bot-info-row"><span>Phong cách:</span> <span class="bot-info-val">${state.vsBotSettings.botStyle === 'human' ? "Giống Người" : "Tiêu Chuẩn"}</span></div>
             <div class="bot-info-row"><span>Độ khó:</span> <span class="bot-info-val">Level ${state.vsBotSettings.level}</span></div>
         `;
+        
+        // NẾU BẬT CHƠI THỜI GIAN
+        if (state.vsBotSettings.useTimer) {
+            let timerRowStyle = "transition: all 0.3s;";
+            let timerTextStyle = "font-size: 16px; font-weight: 900;";
+
+            if (!isBotTurn) { 
+                // ĐẾN LƯỢT NGƯỜI CHƠI -> Đồng hồ phát sáng
+                if (playerColor === 'red') {
+                    timerRowStyle += " border-color: #ca3431; background: #fdf3f2; box-shadow: 0 0 6px rgba(202, 52, 49, 0.4);";
+                    timerTextStyle += " color: #d32f2f;"; // Chữ đỏ
+                } else {
+                    timerRowStyle += " border-color: #333; background: #f0f0f0; box-shadow: 0 0 6px rgba(0, 0, 0, 0.4);";
+                    timerTextStyle += " color: #000000;"; // Chữ đen
+                }
+            } else {
+                // ĐẾN LƯỢT BOT -> Đồng hồ tắt đèn, mờ chữ đi một chút
+                timerRowStyle += " border-color: #eee; background: #f8f9fa;";
+                timerTextStyle += " color: #888;"; // Chữ xám
+            }
+
+            timeHtml = `
+                <div class="bot-info-row" style="${timerRowStyle}">
+                    <span style="font-weight:bold; color: #555;">Thời gian:</span> 
+                    <span id="player-clock-text" class="bot-info-val" style="${timerTextStyle}">${PlayerTimer.getFormattedTime()}</span>
+                </div>
+            `;
+        }
+        
     } else if (state.appMode === 'puzzle') {
         isBotTurn = (state.aiPlaysRed && isRedTurn) || (state.aiPlaysBlack && !isRedTurn);
         titleText = "GIẢI BÀI TẬP";
@@ -73,7 +106,6 @@ function updateBotTitleBoard() {
             </div>
         `;
 
-        // Ép kiểu về số nguyên để đảm bảo luôn tính toán đúng
         const maxMoves = parseInt(state.currentPuzzleMaxMoves, 10);
         if (!isNaN(maxMoves) && maxMoves < 100) {
             limitRow = `<div class="bot-info-row"><span>Giới hạn:</span> <span class="bot-info-val" style="color: #d32f2f;">${maxMoves} nước</span></div>`;
@@ -82,15 +114,69 @@ function updateBotTitleBoard() {
 
     const turnText = isBotTurn ? `<span class="bot-info-val bot-turn-ai">MÁY TÍNH</span>` : `<span class="bot-info-val bot-turn-player">BẠN ĐI</span>`;
 
-    // Xuất HTML: Đặt biến ${limitRow} ở dưới cùng, ngay sau phần Lượt đi
     titleHeader.innerHTML = `
         <strong style="font-size: 18px; color: #333; display: block; width: 100%;">${titleText}</strong>
         <div class="bot-info-board">
             ${infoRows}
             <div class="bot-info-row"><span>Lượt đi:</span> ${turnText}</div>
+            ${timeHtml}
             ${limitRow}
         </div>
     `;
+}
+
+export function handlePlayerTimeout() {
+    forceStopAIPlayers();
+    
+    // Ghi nhận thua do hết giờ
+    state.currentGameInfo.result = state.currentNode.fen.split(" ")[1] === "w" ? "0-1" : "1-0";
+    let rawComment = state.rootNode.comment.split("-------------------\n")[1] || "";
+    state.rootNode.comment = formatGameInfoString(state.currentGameInfo, rawComment) + "\n(Hết thời gian - Thua cuộc)";
+    
+    saveGameState(); // Lưu DB
+
+    // Bật bảng Game Over
+    setTimeout(() => {
+        const modal = document.getElementById('new-game-modal');
+        const modalHeader = modal.querySelector('.modal-header');
+        const modalBody = modal.querySelector('.modal-body');
+        modalHeader.style.color = "red";
+        modalHeader.innerText = "Hết Thời Gian!";
+        modalBody.innerHTML = `<strong style="color: red; font-size: 18px; display: block; margin-bottom: 10px;">BẠN ĐÃ THUA</strong><span style="color: black;">Do cạn kiệt thời gian quy định. Bạn có muốn phục thù ván mới không?</span>`;
+        document.getElementById('btn-new-confirm').innerText = "Ván Mới";
+        import('./ui.js').then(ui => ui.openModal('new-game-modal'));
+    }, 400);
+}
+
+export function syncPlayerTimer() {
+    // Nếu không phải chế độ Bot hoặc không bật thời gian -> Tắt đồng hồ
+    if (state.appMode !== 'vsbot' || !state.vsBotSettings.useTimer) {
+        PlayerTimer.stop();
+        return;
+    }
+
+    // Nếu ván cờ đã kết thúc (Có kết quả Thắng/Thua/Hòa) -> Tắt đồng hồ
+    if (state.currentGameInfo.result && state.currentGameInfo.result !== "*") {
+        PlayerTimer.stop();
+        return;
+    }
+
+    // Kiểm tra xem đến lượt ai
+    const isRedTurn = state.currentNode.fen.split(" ")[1] === "w";
+    const isBotTurn = (state.vsBotSettings.botColor === 'red' && isRedTurn) || (state.vsBotSettings.botColor === 'black' && !isRedTurn);
+
+    if (isBotTurn) {
+        PlayerTimer.stop(); // Lượt của Bot -> Dừng đồng hồ
+    } else {
+        // Lượt của Người chơi -> Chạy đồng hồ
+        PlayerTimer.start(
+            (timeStr) => { // Callback mỗi khi thời gian nhảy
+                const clockEl = document.getElementById('player-clock-text');
+                if (clockEl) clockEl.innerText = timeStr;
+            },
+            handlePlayerTimeout // Callback khi hết giờ
+        );
+    }
 }
 
 export function updateBlindTurnUI() {
@@ -148,6 +234,8 @@ export function fastWireTree(rawNode, parent = null) {
 // Hàm 3: Nạp 1 ván cờ từ gameList lên RAM (Thay thế loadTreeFromNodeData cũ)
 export function loadGameFromList(index, targetPtrId = null) {
     if (state.gameList.length === 0 || !state.gameList[index]) return;
+
+    state.isGameEndedLock = false;
     
     state.currentGameIndex = index;
     let gameData = state.gameList[index];
@@ -187,18 +275,38 @@ export function loadGameFromList(index, targetPtrId = null) {
     renderGameList(false);
     updateBlindTurnUI();
     //if (state.appMode === 'memorize') triggerMemorizeBot();
+    if (state.appMode === 'vsbot' && state.vsBotSettings.useTimer) {
+        PlayerTimer.load(state.vsBotSettings.remainingTimeMs, state.vsBotSettings.increment);
+    }
+    syncPlayerTimer();
 }
 
 export function updateVsBotToolButtons() {
-    if (state.appMode !== 'vsbot' && state.appMode !== 'memorize' && state.appMode !== 'puzzle') return;
+    const btnUndo = document.getElementById('btn-undo');
+    const btnHint = document.getElementById('btn-hint');
+    const btnEdit = document.getElementById('btn-edit');
+    const btnImport = document.getElementById('btn-import'); 
+
+    // 1. Luôn MỞ KHÓA tất cả các nút trước khi tính toán
+    if (btnUndo) btnUndo.classList.remove('disabled');
+    if (btnHint) btnHint.classList.remove('disabled');
+    if (btnEdit) btnEdit.classList.remove('disabled'); 
+    if (btnImport) btnImport.classList.remove('disabled');
+
+    // Nếu không phải các chế độ liên quan đến Bot, thì thoát luôn (để nút mở)
+    if (state.appMode !== 'vsbot' && state.appMode !== 'memorize' && state.appMode !== 'puzzle') {
+        return;
+    }
     
+    // Kiểm tra xem ván đấu đã kết thúc chưa (Hòa/Thắng/Thua)
+    const isGameOver = state.currentGameInfo.result && state.currentGameInfo.result !== '*';
+
     const isRedTurn = state.currentNode.fen.split(" ")[1] === "w";
     let isBotTurn = false;
 
     if (state.appMode === 'vsbot') {
         isBotTurn = (state.vsBotSettings.botColor === 'red' && isRedTurn) || (state.vsBotSettings.botColor === 'black' && !isRedTurn);
     } else if (state.appMode === 'memorize' || state.appMode === 'puzzle') {
-        // GIẢI BÀI TẬP & LUYỆN NHỚ: Máy sẽ đi khi tới lượt màu quân mà máy được chỉ định cầm
         isBotTurn = (state.aiPlaysRed && isRedTurn) || (state.aiPlaysBlack && !isRedTurn);
     }
 
@@ -211,32 +319,40 @@ export function updateVsBotToolButtons() {
         }
     }
     
-    const btnUndo = document.getElementById('btn-undo');
-    const btnHint = document.getElementById('btn-hint');
-    const btnEdit = document.getElementById('btn-edit');
-    const btnImport = document.getElementById('btn-import'); 
-    
-    // Đã có isMemoEnd để sử dụng
-    if (isBotTurn || state.isAnimating || state.isAutoPlaying || isMemoEnd) {
+    // 2. LOGIC KHÓA NÚT
+    if (state.isAnimating || state.isAutoPlaying) {
+        // Đang diễn hoạt hình -> Khóa tất cả
         if(btnUndo) btnUndo.classList.add('disabled');
         if(btnHint) btnHint.classList.add('disabled');
         if(btnEdit) btnEdit.classList.add('disabled'); 
         if(btnImport) btnImport.classList.add('disabled');
-    } else {
-        if(btnHint) btnHint.classList.remove('disabled');
-        if(btnEdit) btnEdit.classList.remove('disabled'); 
-        if(btnImport) btnImport.classList.remove('disabled');
-        
+    } 
+    else if ((isBotTurn && !isGameOver) || isMemoEnd) {
+        // Đến lượt Bot (và ván CHƯA kết thúc) -> Khóa tất cả
+        if(btnUndo) btnUndo.classList.add('disabled');
+        if(btnHint) btnHint.classList.add('disabled');
+        if(btnEdit) btnEdit.classList.add('disabled'); 
+        if(btnImport) btnImport.classList.add('disabled');
+    } 
+    else {
+        // Lượt người chơi, HOẶC ván đấu ĐÃ KẾT THÚC
+        // -> Cho phép Edit và Import thoải mái! Chỉ xử lý riêng Undo và Hint
         let stepCount = 0; let temp = state.currentNode;
         while(temp.parent) { stepCount++; temp = temp.parent; }
 
-        let minSteps = 2; // Mặc định Lùi 2 bước để ăn mất nước của Bot
+        let minSteps = 2; // Cần 2 bước để Undo mất nước của Bot
         if (state.appMode === 'memorize' && !state.aiPlaysRed && !state.aiPlaysBlack) minSteps = 1; 
         
-        if (stepCount >= minSteps && btnUndo) {
-            btnUndo.classList.remove('disabled');
-        } else if (btnUndo) {
-            btnUndo.classList.add('disabled');
+        // Nếu ván đã kết thúc, cho phép Undo 1 bước để vãn hồi cờ
+        if (isGameOver) minSteps = 1; 
+        
+        if (stepCount < minSteps) {
+            if (btnUndo) btnUndo.classList.add('disabled');
+        }
+
+        // Khi game over thì không cho dùng Gợi ý (Hint) nữa
+        if (isGameOver && btnHint) {
+            btnHint.classList.add('disabled');
         }
     }
     
@@ -270,6 +386,7 @@ export function applyAutoBoardFlip() {
 }
 
 export async function initGame(fenString = START_FEN, loadFromStorage = false) {
+    state.isGameEndedLock = false;
      if (!state.isEditMode) {
         state.isPeeking = false; 
         const btnPeek = document.getElementById('btn-peek');
@@ -346,6 +463,12 @@ export async function initGame(fenString = START_FEN, loadFromStorage = false) {
                 if (!state.isEditMode) {
                     if (!state.engineModule) initPikafish(); else triggerEngineEvaluation();
                 }
+                if (!localStorage.getItem('tkv_has_seen_guide')) {
+                    localStorage.setItem('tkv_has_seen_guide', 'true');
+                    setTimeout(() => {
+                        import('./ui.js').then(ui => ui.openGuidePanel());
+                    }, 1000);
+                }
                 updateBlindTurnUI();
                 return; // Thoát hàm nếu load DB thành công
             }
@@ -355,6 +478,12 @@ export async function initGame(fenString = START_FEN, loadFromStorage = false) {
     // NẾU TẠO VÁN MỚI HOẶC DB TRỐNG -> TẠO LIST MỚI CÓ 1 VÁN KHỞI TẠO
     state.currentGameInfo = Object.assign({}, defaultGameInfo);
     let rawNode = { fen: fenString, comment: formatGameInfoString(state.currentGameInfo, ""), next: [], defaultIndex: 0 };
+
+    if (state.appMode === 'vsbot' && state.vsBotSettings.useTimer && !loadFromStorage) {
+        PlayerTimer.init(state.vsBotSettings.baseTime, state.vsBotSettings.increment);
+        state.vsBotSettings.remainingTimeMs = PlayerTimer.getRemainingMs();
+        storage.saveVsBot(state.vsBotSettings);
+    }
     
     state.gameList = [{ info: state.currentGameInfo, node: rawNode }];
     loadGameFromList(0); // Bơm ván trắng này lên RAM
@@ -374,6 +503,8 @@ export async function initGame(fenString = START_FEN, loadFromStorage = false) {
     state.lastMove = null; state.pendingAIMove = null; state.isAnimating = false; 
     state.pvLines = []; clearArrow(); state.customArrows = []; state.hasAutoSwitchedToAnalyze = false;
     state.selectedSquare = null; state.legalMoves = [];
+
+    state.isChartAnalyzed = false;
     
     const commentBox = document.getElementById('comment-box');
     if (commentBox) commentBox.value = state.rootNode.comment;
@@ -401,9 +532,11 @@ export async function initGame(fenString = START_FEN, loadFromStorage = false) {
     }
     updateBlindTurnUI(); 
     if (state.appMode === 'memorize') triggerMemorizeBot();
+    syncPlayerTimer();
 }
 
 export function handleSquareClick(x, y, iccsPos) {
+    if (state.isGameEndedLock) return;
     if (state.isChartDrawing) {
         import('./ui.js').then(ui => ui.showToast("Đang vẽ biểu đồ, không thể đi cờ!"));
         return;
@@ -559,6 +692,7 @@ export function customTranslator(moveCommand, oldFEN) {
 }
 
 export function forceStopAIPlayers() {
+    PlayerTimer.stop();
     hideAILoading();
     state.aiPlaysRed = false; 
     document.getElementById('btn-ai-red').classList.remove('tool-active');
@@ -575,7 +709,8 @@ export function forceStopAIPlayers() {
     }
 }
 
-export function checkGameOver() {
+export function checkGameOver(showModal = true) {
+    if (state.isChartRunning || state.isChartDrawing) {return false;}
     const puzModal = document.getElementById('puzzle-result-modal');
     if (puzModal && puzModal.style.display === 'flex') return true;
 
@@ -585,15 +720,21 @@ export function checkGameOver() {
     const memoModal = document.getElementById('memo-gameover-modal');
     if (memoModal && memoModal.style.display === 'flex') return true;
     
+    // 1. KIỂM TRA CHẾ ĐỘ LUYỆN NHỚ VÁN
     if (state.appMode === 'memorize') {
         const children = state.currentNode.children;
         const isSegmentEnd = (state.memorizeSettings.method === 'segment' && state.currentNode.id === state.memorizeSettings.endNodeId);
         if (children.length === 0 || isSegmentEnd) {
-            import('./ui.js').then(ui => {
-                document.getElementById('memo-end-err-red').innerText = state.memoMistakesRed;
-                document.getElementById('memo-end-err-black').innerText = state.memoMistakesBlack;
-                ui.openModal('memo-gameover-modal');
-            });
+            // Bọc lệnh mở Modal vào biến showModal
+            if (showModal) {
+                setTimeout(() => {
+                    import('./ui.js').then(ui => {
+                        document.getElementById('memo-end-err-red').innerText = state.memoMistakesRed;
+                        document.getElementById('memo-end-err-black').innerText = state.memoMistakesBlack;
+                        ui.openModal('memo-gameover-modal');
+                    });
+                }, 400);
+            }
             return true; 
         }
         return false; 
@@ -602,116 +743,127 @@ export function checkGameOver() {
     const isDraw = checkDraw60Moves(state.currentNode);
     const strictMoves = getStrictLegalMoves(state.currentSituation, state.currentNode.fen);
 
-    // --- LOGIC XỬ LÝ RIÊNG CHO GIẢI BÀI TẬP ---
+    // 2. KIỂM TRA CHẾ ĐỘ GIẢI BÀI TẬP
     if (state.appMode === 'puzzle') {
         const isRedTurn = state.currentNode.fen.split(" ")[1] === "w";
         const isBotTurn = (state.aiPlaysRed && isRedTurn) || (state.aiPlaysBlack && !isRedTurn);
         
-        // Thắng: Không hòa VÀ Bot đến lượt nhưng hết nước đi (Bị chiếu bí)
         const isPlayerWin = (!isDraw && isBotTurn && strictMoves.length === 0);
-
-        // Đếm số hiệp trọn vẹn đã hoàn thành (1 hiệp = 1 nước Player + 1 nước Bot)
-        // Dùng Math.floor: Đi 5 bước (Player 3, Bot 2) -> floor(5/2) = 2. Đi 6 bước (Player 3, Bot 3) -> floor(6/2) = 3.
         const completedRounds = Math.floor(state.currentStepNum / 2);
-        
-        // SỬA ĐỔI QUAN TRỌNG TẠI ĐÂY:
-        // Đạt giới hạn khi: Số hiệp trọn vẹn >= max_moves VÀ hiện tại đang là lượt của Player
-        // (Tức là Bot đã đi xong nước đáp trả cuối cùng, và Player chuẩn bị đi lố giới hạn)
         const isLimitReached = (state.currentPuzzleMaxMoves < 100 && completedRounds >= state.currentPuzzleMaxMoves && !isBotTurn);
-
-        // Thua: Hòa cờ HOẶC Player bị bí HOẶC Hết số nước giới hạn (Bot vừa đỡ xong)
         const isPlayerLoss = isDraw || (!isBotTurn && strictMoves.length === 0) || (!isPlayerWin && isLimitReached);
 
         if (isPlayerWin || isPlayerLoss) {
             forceStopAIPlayers();
             if (state.isAutoPlaying) toggleAutoPlay();
 
-            import('./ui.js').then(ui => {
-                const header = document.getElementById('puzzle-result-header');
-                const desc = document.getElementById('puzzle-result-desc');
-                const btnNext = document.getElementById('btn-puz-res-next');
-                
-                if (isPlayerWin) {
-                    header.innerText = "Giải Thành Công 🎉";
-                    header.style.color = "#008a3e";
-                    
-                    const winMoveCount = Math.ceil(state.currentStepNum / 2);
-                    desc.innerText = `Chúc mừng! Bạn đã giải xong trong ${winMoveCount} nước.`;
-                    
-                    // --- LƯU BÀI TẬP ĐÃ GIẢI VÀO DATABASE ---
-                    const isChallenge = state.currentPuzzleName === "Thử Thách" || state.currentPuzzleKey.includes("challenge");
-                    
-                    if (isChallenge) {
-                        // Challenge: Chỉ lưu Max Index
-                        const maxSolvedIndex = state.currentPuzzleSolved.length > 0 ? state.currentPuzzleSolved[0] : -1;
-                        if (state.currentPuzzleIndex > maxSolvedIndex) {
-                            state.currentPuzzleSolved = [state.currentPuzzleIndex]; // Ghi đè bằng index cao nhất
-                            saveWorkspace('puz_solved_' + state.currentPuzzleSolvedKey, state.currentPuzzleSolved);
-                        }
-                    } else {
-                        // Bài thường: Lưu mảng dồn
-                        if (!state.currentPuzzleSolved.includes(state.currentPuzzleIndex)) {
-                            state.currentPuzzleSolved.push(state.currentPuzzleIndex);
-                            saveWorkspace('puz_solved_' + state.currentPuzzleSolvedKey, state.currentPuzzleSolved);
-                        }
-                    }
-                    
-                    btnNext.style.display = 'block';
-                    if (state.currentPuzzleIndex >= state.puzzleFens.length - 1) {
-                        btnNext.style.opacity = '0.4';
-                        btnNext.style.pointerEvents = 'none';
-                    } else {
-                        btnNext.style.opacity = '1';
-                        btnNext.style.pointerEvents = 'auto';
+            // LƯU DATA NGAY LẬP TỨC
+            const isChallenge = state.currentPuzzleName === "Thử Thách" || state.currentPuzzleKey.includes("challenge");
+            if (isPlayerWin) {
+                if (isChallenge) {
+                    const maxSolvedIndex = state.currentPuzzleSolved.length > 0 ? state.currentPuzzleSolved[0] : -1;
+                    if (state.currentPuzzleIndex > maxSolvedIndex) {
+                        state.currentPuzzleSolved = [state.currentPuzzleIndex]; 
+                        saveWorkspace('puz_solved_' + state.currentPuzzleSolvedKey, state.currentPuzzleSolved);
                     }
                 } else {
-                    header.innerText = "Giải Thất Bại ❌";
-                    header.style.color = "#d32f2f";
-                    btnNext.style.display = 'none';
-                    
-                    if (isDraw) desc.innerText = "Hòa cờ (Luật 30 nước hoặc lặp lại nước đi)!";
-                    else if (!isBotTurn && strictMoves.length === 0) desc.innerText = "Bạn đã bị chiếu bí!";
-                    else if (isLimitReached) desc.innerText = `Không thể chiếu hết trong giới hạn ${state.currentPuzzleMaxMoves} nước đi!`;
+                    if (!state.currentPuzzleSolved.includes(state.currentPuzzleIndex)) {
+                        state.currentPuzzleSolved.push(state.currentPuzzleIndex);
+                        saveWorkspace('puz_solved_' + state.currentPuzzleSolvedKey, state.currentPuzzleSolved);
+                    }
                 }
-                ui.openModal('puzzle-result-modal');
-            });
-            return true; // Báo hiệu Game Over
+            }
+
+            // Bọc lệnh mở Modal vào biến showModal
+            if (showModal) {
+                setTimeout(() => {
+                    import('./ui.js').then(ui => {
+                        const header = document.getElementById('puzzle-result-header');
+                        const desc = document.getElementById('puzzle-result-desc');
+                        const btnNext = document.getElementById('btn-puz-res-next');
+                        
+                        if (isPlayerWin) {
+                            header.innerText = "Giải Thành Công 🎉";
+                            header.style.color = "#008a3e";
+                            const winMoveCount = Math.ceil(state.currentStepNum / 2);
+                            desc.innerText = `Chúc mừng! Bạn đã giải xong trong ${winMoveCount} nước.`;
+                            
+                            btnNext.style.display = 'block';
+                            if (state.currentPuzzleIndex >= state.puzzleFens.length - 1) {
+                                btnNext.style.opacity = '0.4';
+                                btnNext.style.pointerEvents = 'none';
+                            } else {
+                                btnNext.style.opacity = '1';
+                                btnNext.style.pointerEvents = 'auto';
+                            }
+                        } else {
+                            header.innerText = "Giải Thất Bại ❌";
+                            header.style.color = "#d32f2f";
+                            btnNext.style.display = 'none';
+                            
+                            if (isDraw) desc.innerText = "Hòa cờ (Luật 60 nước hoặc lặp lại nước đi)!";
+                            else if (!isBotTurn && strictMoves.length === 0) desc.innerText = "Bạn đã bị chiếu bí!";
+                            else if (isLimitReached) desc.innerText = `Không thể chiếu hết trong giới hạn ${state.currentPuzzleMaxMoves} nước đi!`;
+                        }
+                        ui.openModal('puzzle-result-modal');
+                    });
+                }, 400);
+            }
+            
+            return true; 
         }
-        return false; // Chưa Game Over
+        return false; 
     }
 
+    // 3. KIỂM TRA CHẾ ĐỘ THƯỜNG / ĐẤU VS BOT / CỜ MÙ
     if (isDraw || strictMoves.length === 0) {
         forceStopAIPlayers();
         if (state.isAutoPlaying) toggleAutoPlay();
 
-        const modal = document.getElementById('new-game-modal');
-        const modalHeader = modal.querySelector('.modal-header');
-        const modalBody = modal.querySelector('.modal-body');
-        modalHeader.style.color = "black";
-        
+        if (state.appMode === 'vsbot') {
+            state.isGameEndedLock = true; 
+        }
+
+        // Chuẩn bị Text ghi chú (Cập nhật ngầm ngay lập tức)
         if (isDraw) {
             state.currentGameInfo.result = "1/2-1/2";
-            modalHeader.innerText = "Kết Thúc Ván";
-            modalBody.innerHTML = `<strong style="color: #008a3e; font-size: 18px; display: block; margin-bottom: 10px;">HÒA CỜ</strong><span style="color: black; font-weight: normal; font-size: 14px;">(Hai bên đã đi 60 nước không ăn quân)<br>Bạn có muốn chơi ván mới không?</span>`;
         } else {
             const isRedTurn = state.currentNode.fen.split(" ")[1] === "w";
             state.currentGameInfo.result = isRedTurn ? "0-1" : "1-0"; 
-            modalHeader.innerText = "Kết Thúc Ván";
-            if (isRedTurn) {
-                modalBody.innerHTML = `<strong style="color: black; font-size: 18px; display: block; margin-bottom: 10px;">BÊN ĐEN THẮNG</strong><span style="color: black; font-weight: normal; font-size: 14px;">Bạn có muốn chơi ván mới không?</span>`;
-            } else {
-                modalBody.innerHTML = `<strong style="color: red; font-size: 18px; display: block; margin-bottom: 10px;">BÊN ĐỎ THẮNG</strong><span style="color: black; font-weight: normal; font-size: 14px;">Bạn có muốn chơi ván mới không?</span>`;
-            }
         }
-
         let rawComment = state.rootNode.comment.split("-------------------\n")[1] || "";
         state.rootNode.comment = formatGameInfoString(state.currentGameInfo, rawComment);
-        
-        document.getElementById('btn-new-confirm').innerText = "Xác nhận";
-        openModal('new-game-modal');
-        return true; // Game Over
+
+        // Bọc lệnh mở Modal vào biến showModal
+        if (showModal) {
+            setTimeout(() => {
+                const modal = document.getElementById('new-game-modal');
+                const modalHeader = modal.querySelector('.modal-header');
+                const modalBody = modal.querySelector('.modal-body');
+                modalHeader.style.color = "black";
+                
+                if (isDraw) {
+                    modalHeader.innerText = "Kết Thúc Ván";
+                    modalBody.innerHTML = `<strong style="color: #008a3e; font-size: 18px; display: block; margin-bottom: 10px;">HÒA CỜ</strong><span style="color: black; font-weight: normal; font-size: 14px;">Hai bên đã đi 60 nước không ăn quân hoặc lặp lại nước đi<br>Bạn có muốn chơi ván mới không?</span>`;
+                } else {
+                    const isRedTurn = state.currentNode.fen.split(" ")[1] === "w"; 
+                    modalHeader.innerText = "Kết Thúc Ván";
+                    if (isRedTurn) {
+                        modalBody.innerHTML = `<strong style="color: black; font-size: 18px; display: block; margin-bottom: 10px;">BÊN ĐEN THẮNG</strong><span style="color: black; font-weight: normal; font-size: 14px;">Bạn có muốn chơi ván mới không?</span>`;
+                    } else {
+                        modalBody.innerHTML = `<strong style="color: red; font-size: 18px; display: block; margin-bottom: 10px;">BÊN ĐỎ THẮNG</strong><span style="color: black; font-weight: normal; font-size: 14px;">Bạn có muốn chơi ván mới không?</span>`;
+                    }
+                }
+
+                document.getElementById('btn-new-confirm').innerText = "Xác nhận";
+                openModal('new-game-modal');
+            }, 400);
+        }
+
+        return true; 
     }
-    return false; // Chưa Game Over
+    
+    return false;
 }
 
 export function triggerMemorizeBot() {
@@ -817,7 +969,7 @@ export function triggerMemorizeBot() {
                     setTimeout(() => { 
                         state.isAnimating = false; 
                         updateVsBotToolButtons();
-                        checkGameOver(); 
+                        checkGameOver(true); 
                         triggerMemorizeBot(); // Xem xét đi tiếp
                     }, state.appSettings.animation ? 150 : 0);
                     
@@ -880,6 +1032,17 @@ export function executeMove(moveCommand, isJump = false, isReverse = false) {
     if (useAnim) startCanvasAnimation(fromIccs, toIccs, movingPieceCode);
 
     state.currentSituation = vschess.fenToSituation(state.currentNode.fen);
+
+    if (!isReverse && !isJump && state.appMode === 'vsbot' && state.vsBotSettings.useTimer) {
+        const wasRedTurn = (state.currentNode.parent.fen.split(" ")[1] === "w");
+        const wasBotTurn = (state.vsBotSettings.botColor === 'red' && wasRedTurn) || (state.vsBotSettings.botColor === 'black' && !wasRedTurn);
+        
+        if (!wasBotTurn) {
+            PlayerTimer.addIncrement();
+            state.vsBotSettings.remainingTimeMs = PlayerTimer.getRemainingMs();
+            storage.saveVsBot(state.vsBotSettings);
+        }
+    }
     
     if (!isJump) {
         let soundToPlay = 'move';
@@ -896,11 +1059,9 @@ export function executeMove(moveCommand, isJump = false, isReverse = false) {
 
     setTimeout(() => {
         state.isAnimating = false;
-        
-        // Đợi thêm 400ms để người chơi nhìn thấy nước cờ cuối cùng VÀ âm thanh được phát xong
-        // rồi MỚI cho phép hiện Modal Kết thúc ván
+    
         setTimeout(() => {
-            const isGameOver = checkGameOver();
+            const isGameOver = checkGameOver(true);
             if (isGameOver) return;
             if (state.appMode === 'puzzle') {
                 const isRedFirst = state.rootNode.fen.split(" ")[1] === "w";
@@ -909,6 +1070,7 @@ export function executeMove(moveCommand, isJump = false, isReverse = false) {
             }
             if (!isJump && state.appMode !== 'memorize') triggerEngineEvaluation(); 
             updateVsBotToolButtons(); 
+            syncPlayerTimer();
             updateBlindTurnUI();
             if (state.appMode === 'memorize') {
                 const side = state.memorizeSettings.side;
@@ -916,7 +1078,7 @@ export function executeMove(moveCommand, isJump = false, isReverse = false) {
                 else if (side === 'black') { state.aiPlaysRed = true; state.aiPlaysBlack = false; }
                 triggerMemorizeBot();
             }
-        }, 600);
+        }, 50);
 
     }, useAnim ? 150 : 0);
 }
@@ -960,9 +1122,9 @@ export function executeForwardStep(targetNode) {
         state.isAnimating = false; 
         
         setTimeout(() => {
-            const isGameOver = checkGameOver();
+            const isGameOver = checkGameOver(state.appMode === 'memorize');
             if (isGameOver) return; 
-            if (state.appMode !== 'memorize') triggerEngineEvaluation(); 
+            if (state.appMode !== 'memorize' && !state.isChartRunning) triggerEngineEvaluation();
             updateVsBotToolButtons();
             updateBlindTurnUI();
             if (state.appMode === 'memorize') {
@@ -971,7 +1133,7 @@ export function executeForwardStep(targetNode) {
                 else if (side === 'black') { state.aiPlaysRed = true; state.aiPlaysBlack = false; }
                 triggerMemorizeBot();
             }
-        }, 600);
+        }, 50);
 
     }, useAnim ? 150 : 0);
 }
@@ -1008,10 +1170,10 @@ export function executeReverseStep(nodeToReverse) {
         state.isAnimating = false; 
         
         setTimeout(() => {
-            const isGameOver = checkGameOver();
+            const isGameOver = checkGameOver(false);
             if (isGameOver) return;
 
-            if (state.appMode !== 'memorize') triggerEngineEvaluation(); 
+            if (state.appMode !== 'memorize' && !state.isChartRunning) triggerEngineEvaluation();
             updateVsBotToolButtons();
             updateBlindTurnUI();
             if (state.appMode === 'memorize') {
@@ -1020,7 +1182,7 @@ export function executeReverseStep(nodeToReverse) {
                 else if (side === 'black') { state.aiPlaysRed = true; state.aiPlaysBlack = false; }
                 triggerMemorizeBot();
             }
-        }, 600);
+        }, 50);
 
     }, useAnim ? 150 : 0);
 }
@@ -1028,6 +1190,7 @@ export function executeReverseStep(nodeToReverse) {
 export function undoVsBot() {
     if (state.isAnimating || !state.currentNode.parent || !state.currentNode.parent.parent) return;
     forceStopAIPlayers();
+    state.isGameEndedLock = false;
     const targetNode = state.currentNode.parent.parent;
     targetNode.children = []; targetNode.mainLineIndex = 0;
     state.currentNode = targetNode; state.currentStepNum -= 2;
@@ -1052,6 +1215,7 @@ export function undoVsBot() {
     
     triggerEngineEvaluation();
     updateVsBotToolButtons();
+    syncPlayerTimer();
 
     if (state.appMode === 'memorize') {
         const side = state.memorizeSettings.side;
@@ -1061,7 +1225,7 @@ export function undoVsBot() {
     }
 }
 
-export function instantJumpToNode(targetNode) {
+export function instantJumpToNode(targetNode, isSilent = false) {
     state.pvLines = [];
     state.customArrows = [];
     state.currentNode = targetNode; 
@@ -1075,10 +1239,16 @@ export function instantJumpToNode(targetNode) {
     while(temp.parent) { step++; temp = temp.parent; }
     state.currentStepNum = step;
 
-    renderMoveHistory(); saveGameState(); updateVsBotToolButtons();
-    if (state.appMode !== 'memorize') triggerEngineEvaluation(); 
-    updateBlindTurnUI();
-    if (state.appMode === 'memorize') triggerMemorizeBot();
+    if (!isSilent) {
+        renderMoveHistory(); 
+        saveGameState(); 
+        updateVsBotToolButtons();
+        if (state.appMode !== 'memorize' && !state.isChartRunning) triggerEngineEvaluation();
+        updateBlindTurnUI();
+        if (state.appMode === 'memorize') triggerMemorizeBot();
+    } else {
+        import('./board.js').then(b => b.renderBoardFull(state.currentSituation));
+    }
 }
 
 export function jumpToNode(targetNode) {
@@ -1092,7 +1262,8 @@ export function jumpToNode(targetNode) {
         forceStopAIPlayers(); executeReverseStep(state.currentNode);
     }
     else {
-        forceStopAIPlayers(); instantJumpToNode(targetNode); checkGameOver(); triggerEngineEvaluation(); 
+        forceStopAIPlayers(); instantJumpToNode(targetNode); checkGameOver(false); 
+        if (!state.isChartRunning) triggerEngineEvaluation(); 
     }
 }
 
@@ -1140,7 +1311,14 @@ export function createRawNode(fen, moveCommand, notation, isRed, roundNum, paren
         fen: fen || null,
         notation: notation || null,
         isRed: isRed || false,
-        roundNum: roundNum || 1
+        roundNum: roundNum || 1,
+
+
+        scoreObj: null,         // Object gốc từ Pikafish { cp: 150, mate: undefined }
+        normalizedScore: null,  // Điểm đã chuẩn hóa (VD: ±30000 hoặc CP)
+        moveScore: null,        // Điểm đánh giá nước đi (0 - 100)
+        classification: null,   // Nhãn: 'best', 'mistake', 'blunder'...
+        aiBestMove: null        // Nước đi tốt nhất do AI gợi ý
     };
 }
 
@@ -1197,6 +1375,37 @@ export function syncNavbarWidth() {
             navBar.style.width = `${boardArea.offsetWidth}px`; 
         }, 10);
     }
+}
+
+export function clearTreeAnalysisData(node) {
+    if (!node) return;
+    
+    node.scoreObj = null;
+    node.normalizedScore = null;
+    node.moveScore = null;
+    node.classification = null;
+    node.aiBestMove = null;
+    
+    for (let i = 0; i < node.children.length; i++) {
+        clearTreeAnalysisData(node.children[i]);
+    }
+}
+
+export function getMoveHistoryString(targetNode) {
+    if (!targetNode || targetNode === state.rootNode) return "";
+    
+    let path = [];
+    let curr = targetNode;
+
+    while (curr && curr !== state.rootNode) {
+        if (curr.moveCommand) {
+            path.push(curr.moveCommand);
+        }
+        curr = curr.parent;
+    }
+    path.reverse();
+    
+    return path.join(" ");
 }
 
 window.addEventListener('resize', syncNavbarWidth);

@@ -18,6 +18,7 @@ const defaultSystem = {
     cloudBookLimit: 10,
     animation: true,
     arrows: true,
+    allowCustomArrows: true,
     sound: true,
     boardStyle: "style/1-mac_dinh", 
     pieceStyle: "style/1-mac_dinh"
@@ -30,7 +31,11 @@ const defaultAnalysis = {
 const defaultVsBot = {
     botColor: "black", 
     botStyle: "standard", 
-    level: 1
+    level: 1,
+    useTimer: true,
+    baseTime: 15,
+    increment: 0,
+    remainingTimeMs: 0
 };
 
 const savedSystem = Object.assign({}, defaultSystem, storage.getSystem());
@@ -41,12 +46,10 @@ savedSystem.appMode = "analyze";
 
 export const state = {
     appMode: savedSystem.appMode, 
-    vsBotSetupOrigin: 'menu', // 'menu' hoặc 'toolbar'
+    vsBotSetupOrigin: 'menu', 
 
-    // --- BIẾN MỚI CHO QUẢN LÝ LIST VÁN ĐẤU ---
-    gameList: [],         // Mảng chứa các Object ván đấu thô (Phục vụ CBL và Workspace)
-    currentGameIndex: 0,  // Đang xem ván thứ mấy trong mảng
-    // -----------------------------------------
+    gameList: [],         
+    currentGameIndex: 0,  
     
     currentGameInfo: Object.assign({}, defaultGameInfo),
     rootNode: null,
@@ -97,10 +100,13 @@ export const state = {
     aiSettings: savedAnalysis,
     vsBotSettings: savedVsBot,
 
-    chartSettings: { depth: 20, time: 2 },
+    chartSettings: { mode: 'preset', preset: 'fast', customDepth: 15, customTime: 1, runDepth: 14, runTime: 2 },
     isChartRunning: false,
     isChartDrawing: false,
+    isChartAnalyzed: false,
+    chartTotalMoves: 0,
     chartData: [],
+    chartReport: null,
 
     isEditMode: false,
     selectedPalettePiece: null,
@@ -114,8 +120,8 @@ export const state = {
     pendingDownloadType: "",
     editingParentNode: null,
 
-    pendingMemorizeData: null, // Chứa ván cờ tạm thời khi chọn/tải file
-    memorizeSettings: { side: 'red', path: 'manual', isBlind: false, startNodeId: null, endNodeId: null}, // Lưu cấu hình
+    pendingMemorizeData: null, 
+    memorizeSettings: { side: 'red', path: 'manual', isBlind: false, startNodeId: null, endNodeId: null}, 
     memoMistakesRed: 0,
     memoMistakesBlack: 0
 };

@@ -1,15 +1,18 @@
 // js/engine.js
 import { drawBestMoveArrow, clearArrow } from './board.js';
 import { initChartUI, addChartPoint, closeChartUI } from './chart.js';
-import { customTranslator, executeMove,instantJumpToNode } from './game.js'; 
+import { customTranslator, executeMove, instantJumpToNode, getMoveHistoryString } from './game.js'; 
 import { showToast, showAILoading, hideAILoading } from './ui.js';
 import { getStrictLegalMoves } from './rules.js';
-import { state, storage } from './state.js'; // Thêm storage vào đây
+import { state, storage } from './state.js'; 
 import { queryLocalBookWorker } from './localbook.js';
+import { normalizeScore, evaluateMoveScore, classifyMove, calculateWinRatePercentage } from './analyzer.js';
 
 let chartCurrentNode = null;
 let chartTimerId = null;
-let chartLatestScore = 0;
+let chartLatestCP = null; 
+let chartLatestMate = null; 
+let chartNodeStartTime = 0;
 
 let pendingAction = null; 
 let stopTimeoutId = null; 
@@ -17,26 +20,9 @@ let isEngineSearching = false;
 let cloudBookTimeoutId = null; 
 let lastUiUpdateTime = 0;
 
-let currentEngineInstance = null; // Lưu trữ Worker (nếu là single) hoặc Module (nếu là multi)
+let currentEngineInstance = null; 
 let currentWasmType = null;
 let fallbackTriggered = false;
-
-export function getDeviceTier() {
-    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-    if (!isMobile) return 'PC';
-
-    // Nhận diện RAM (Chỉ hoạt động trên Chromium)
-    let ram = navigator.deviceMemory || 0;
-    
-    // Fallback cho iOS/Safari (Không hỗ trợ deviceMemory)
-    if (ram === 0) {
-        const cores = navigator.hardwareConcurrency || 2;
-        ram = cores >= 6 ? 6 : 4; // iPhone từ 6 lõi trở lên thường khá mạnh (Tương đương 6GB)
-    }
-
-    if (ram < 6) return 'MOBILE_LOW';
-    return 'MOBILE_HIGH';
-}
 
 export let botProfiles = { 
     standard: [
@@ -44,81 +30,59 @@ export let botProfiles = {
         {id: 2, levelName: "Cấp 2", uciSkillLevel: 2, searchDepth: 6, maxMovetimeMs: 400},
         {id: 3, levelName: "Cấp 3", uciSkillLevel: 4, searchDepth: 8, maxMovetimeMs: 600},
         {id: 4, levelName: "Cấp 4", uciSkillLevel: 6, searchDepth: 10, maxMovetimeMs: 800},
-        {id: 5, levelName: "Cấp 5", uciSkillLevel: 9, searchDepth: 12, maxMovetimeMs: 1000},
-        {id: 6, levelName: "Cấp 6", uciSkillLevel: 12, searchDepth: 14, maxMovetimeMs: 1200},
-        {id: 7, levelName: "Cấp 7", uciSkillLevel: 15, searchDepth: 16, maxMovetimeMs: 1500},
-        {id: 8, levelName: "Cấp 8", uciSkillLevel: 17, searchDepth: 18, maxMovetimeMs: 2000},
-        {id: 9, levelName: "Cấp 9", uciSkillLevel: 19, searchDepth: 20, maxMovetimeMs: 2500},
-        {id: 10, levelName: "Cấp 10", uciSkillLevel: 20, searchDepth: 24, maxMovetimeMs: 3500}
+        {id: 5, levelName: "Cấp 5", uciSkillLevel: 8, searchDepth: 12, maxMovetimeMs: 1000},
+        {id: 6, levelName: "Cấp 6", uciSkillLevel: 10, searchDepth: 14, maxMovetimeMs: 1200},
+        {id: 7, levelName: "Cấp 7", uciSkillLevel: 12, searchDepth: 16, maxMovetimeMs: 1500},
+        {id: 8, levelName: "Cấp 8", uciSkillLevel: 14, searchDepth: 18, maxMovetimeMs: 1800},
+        {id: 9, levelName: "Cấp 9", uciSkillLevel: 16, searchDepth: 20, maxMovetimeMs: 2000},
+        {id: 10, levelName: "Cấp 10", uciSkillLevel: 18, searchDepth: 22, maxMovetimeMs: 2500},
+        {id: 11, levelName: "Cấp 11", uciSkillLevel: 19, searchDepth: 24, maxMovetimeMs: 3000},
+        {id: 12, levelName: "Cấp 12", uciSkillLevel: 20, searchDepth: 26, maxMovetimeMs: 3500}
     ], 
     human: [
-        {id: 1, uciSkillLevel: 20, searchDepth: 5, maxMovetimeMs: 500, multiPVCount: 4, pvProbabilities: [0.10, 0.20, 0.30, 0.40], maxCentipawnDrop: 400, minFakeThinkTime: 0.6, maxFakeThinkTime: 0.8},
-        {id: 2, uciSkillLevel: 20, searchDepth: 10, maxMovetimeMs: 700, multiPVCount: 4, pvProbabilities: [0.25, 0.25, 0.25, 0.25], maxCentipawnDrop: 250, minFakeThinkTime: 0.8, maxFakeThinkTime: 1.0},
-        {id: 3, uciSkillLevel: 20, searchDepth: 15, maxMovetimeMs: 800, multiPVCount: 3, pvProbabilities: [0.40, 0.30, 0.30], maxCentipawnDrop: 150, minFakeThinkTime: 0.9, maxFakeThinkTime: 1.1},
-        {id: 4, uciSkillLevel: 20, searchDepth: 15, maxMovetimeMs: 1000, multiPVCount: 3, pvProbabilities: [0.40, 0.35, 0.25], maxCentipawnDrop: 100, minFakeThinkTime: 1.1, maxFakeThinkTime: 1.3},
-        {id: 5, uciSkillLevel: 20, searchDepth: 15, maxMovetimeMs: 1000, multiPVCount: 3, pvProbabilities: [0.55, 0.3, 0.15], maxCentipawnDrop: 80, minFakeThinkTime: 1.1, maxFakeThinkTime: 1.3},
-        {id: 6, uciSkillLevel: 20, searchDepth: 16, maxMovetimeMs: 1200, multiPVCount: 2, pvProbabilities: [0.65, 0.35], maxCentipawnDrop: 60, minFakeThinkTime: 1.3, maxFakeThinkTime: 1.5},
-        {id: 7, uciSkillLevel: 20, searchDepth: 17, maxMovetimeMs: 1500, multiPVCount: 2, pvProbabilities: [0.75, 0.25], maxCentipawnDrop: 40, minFakeThinkTime: 1.6, maxFakeThinkTime: 1.8},
-        {id: 8, uciSkillLevel: 20, searchDepth: 18, maxMovetimeMs: 1500, multiPVCount: 2, pvProbabilities: [0.85, 0.15], maxCentipawnDrop: 20, minFakeThinkTime: 1.6, maxFakeThinkTime: 1.8},
-        {id: 9, uciSkillLevel: 20, searchDepth: 19, maxMovetimeMs: 2000, multiPVCount: 1, pvProbabilities: [1.0], maxCentipawnDrop: 0, minFakeThinkTime: 2.1, maxFakeThinkTime: 2.3},
-        {id: 10, uciSkillLevel: 20, searchDepth: 25, maxMovetimeMs: 2500, multiPVCount: 1, pvProbabilities: [1.0], maxCentipawnDrop: 0, minFakeThinkTime: 2.6, maxFakeThinkTime: 2.8}
+        {id: 1, uciSkillLevel: 20, searchDepth: 6, maxMovetimeMs: 500, multiPVCount: 5, pvProbabilities: [0.10, 0.20, 0.20, 0.25, 0.25], maxCentipawnDrop: 400, maxBadScore: -600},
+        {id: 2, uciSkillLevel: 20, searchDepth: 8, maxMovetimeMs: 600, multiPVCount: 5, pvProbabilities: [0.15, 0.20, 0.20, 0.20, 0.25], maxCentipawnDrop: 350, maxBadScore: -550},
+        {id: 3, uciSkillLevel: 20, searchDepth: 10, maxMovetimeMs: 700, multiPVCount: 5, pvProbabilities: [0.20, 0.20, 0.20, 0.20, 0.20], maxCentipawnDrop: 300, maxBadScore: -500},
+        {id: 4, uciSkillLevel: 20, searchDepth: 12, maxMovetimeMs: 800, multiPVCount: 4, pvProbabilities: [0.15, 0.25, 0.25, 0.35], maxCentipawnDrop: 250, maxBadScore: -400},
+        {id: 5, uciSkillLevel: 20, searchDepth: 13, maxMovetimeMs: 900, multiPVCount: 4, pvProbabilities: [0.2, 0.25, 0.25, 0.30], maxCentipawnDrop: 200, maxBadScore: -350},
+        {id: 6, uciSkillLevel: 20, searchDepth: 14, maxMovetimeMs: 1000, multiPVCount: 4, pvProbabilities: [0.25, 0.25, 0.25, 0.25], maxCentipawnDrop: 150, maxBadScore: -300},
+        {id: 7, uciSkillLevel: 20, searchDepth: 16, maxMovetimeMs: 1300, multiPVCount: 3, pvProbabilities: [0.25, 0.35, 0.40], maxCentipawnDrop: 120, maxBadScore: -250},
+        {id: 8, uciSkillLevel: 20, searchDepth: 17, maxMovetimeMs: 1500, multiPVCount: 3, pvProbabilities: [0.35, 0.35, 0.30], maxCentipawnDrop: 100, maxBadScore: -200},
+        {id: 9, uciSkillLevel: 20, searchDepth: 18, maxMovetimeMs: 1800, multiPVCount: 3, pvProbabilities: [0.40, 0.30, 0.30], maxCentipawnDrop: 80, maxBadScore: -150},
+        {id: 10, uciSkillLevel: 20, searchDepth: 22, maxMovetimeMs: 2500, multiPVCount: 2, pvProbabilities: [0.65, 0.35], maxCentipawnDrop: 50, maxBadScore: -100},
+        {id: 11, uciSkillLevel: 20, searchDepth: 24, maxMovetimeMs: 3000, multiPVCount: 2, pvProbabilities: [0.85, 0.15], maxCentipawnDrop: 30, maxBadScore: -50},
+        {id: 12, uciSkillLevel: 20, searchDepth: 26, maxMovetimeMs: 3500, multiPVCount: 1, pvProbabilities: [1.0], maxCentipawnDrop: 0, maxBadScore: 0}
     ] 
 };
 
 // =====================================================================
-// TÍNH NĂNG FEATURE DETECTION (NHẬN DIỆN PHẦN CỨNG)
+// FEATURE DETECTION
 // =====================================================================
-function checkThreads() {
-    try {
-        //console.log("Check Threads: typeof SharedArrayBuffer = ", typeof SharedArrayBuffer);
-        return typeof SharedArrayBuffer !== 'undefined';
-    } catch (e) {
-        console.error("Check Threads Error:", e);
-        return false;
-    }
-}
-
+function checkThreads() { try { return typeof SharedArrayBuffer !== 'undefined'; } catch (e) { return false; } }
 async function checkSIMD() {
     try {
         const simdWasm = new Uint8Array([0,97,115,109,1,0,0,0,1,5,1,96,0,1,123,3,2,1,0,10,10,1,8,0,65,0,253,15,253,98,11]);
-        let res = await WebAssembly.validate(simdWasm);
-        //console.log("Check SIMD result:", res);
-        return res;
-    } catch (e) { 
-        console.error("Check SIMD Error:", e);
-        return false; 
-    }
+        return await WebAssembly.validate(simdWasm);
+    } catch (e) { return false; }
 }
-
 async function checkRelaxedSIMD() {
     try {
         const relaxedSimdWasm = new Uint8Array([0,97,115,109,1,0,0,0,1,5,1,96,0,1,123,3,2,1,0,10,15,1,13,0,65,1,253,15,65,2,253,15,253,128,2,11]);
-        let res = await WebAssembly.validate(relaxedSimdWasm);
-        //console.log("Check Relaxed SIMD result:", res);
-        return res;
-    } catch (e) { 
-        console.error("Check Relaxed SIMD Error:", e);
-        return false; 
-    }
+        return await WebAssembly.validate(relaxedSimdWasm);
+    } catch (e) { return false; }
+}
+export function getDeviceTier() {
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    return isMobile ? 'MOBILE' : 'PC';
 }
 
-async function getBestEngineType() {
-    const tier = getDeviceTier();
+export async function getBestEngineType() {
+    const isMobile = getDeviceTier() === 'MOBILE';
     const threads = checkThreads();
     const simd = await checkSIMD();
     let relaxedSimd = false;
 
-    if (tier === 'PC') {
-        relaxedSimd = await checkRelaxedSIMD();
-    }
-
-    //console.log(`Hardware detection: Tier=${tier}, Threads=${threads}, SIMD=${simd}, RelaxedSIMD=${relaxedSimd}`);
-
-    // YÊU CẦU 1: Mobile < 6GB bắt buộc chạy single_simd hoặc single
-    if (tier === 'MOBILE_LOW') {
-        if (simd) return 'single_simd';
-        return 'single';
-    }
+    if (!isMobile) relaxedSimd = await checkRelaxedSIMD();
 
     if (threads) {
         if (relaxedSimd) return 'multi_simd_relaxed';
@@ -131,86 +95,202 @@ async function getBestEngineType() {
 }
 
 // =====================================================================
-// KHỞI TẠO ĐỘNG CƠ: TÁCH LUỒNG THEO KIẾN TRÚC XIANGQIAI.COM
+// HỆ THỐNG SENTINEL (NGƯỜI CANH GÁC BỘ NHỚ - CHUẨN XIANGQIAI)
+// =====================================================================
+const SENTINEL_KEY = "tkv_sentinel_pending";
+const SENTINEL_KILL_MIN = "tkv_sentinel_kill_min"; // Mốc Hash cao nhất gây crash
+
+export const EngineSentinel = {
+    armedInfo: null,
+    heartbeatTimer: null,
+    settleTimer: null,
+
+    initLifecycle() {
+        if (typeof window === 'undefined') return;
+        window.addEventListener('pagehide', () => this.disarm());
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'hidden') this.disarm();
+        });
+    },
+
+    readPending() {
+        try {
+            const data = localStorage.getItem(SENTINEL_KEY);
+            return data ? JSON.parse(data) : null;
+        } catch (e) { return null; }
+    },
+
+    writePending(info) {
+        this.armedInfo = info;
+        try { localStorage.setItem(SENTINEL_KEY, JSON.stringify(info)); } catch (e) {}
+    },
+
+    getHashCeiling() {
+        try {
+            const killMin = Number(localStorage.getItem(SENTINEL_KILL_MIN));
+            // Nếu có mốc Crash, trả về một nửa mốc đó, thấp nhất là 32MB
+            if (killMin && killMin > 0) return Math.max(32, Math.floor(killMin / 2));
+        } catch (e) {}
+        return Infinity;
+    },
+
+    checkStartup(reqHash, reqThreads) {
+        const pending = this.readPending();
+        if (!pending) return { status: "clean" };
+
+        localStorage.removeItem(SENTINEL_KEY);
+        this.armedInfo = null;
+
+        // Nếu lần trước bị crash
+        const prevHash = pending.hash || reqHash;
+        const prevThreads = pending.threads || reqThreads;
+
+        // Tính toán cắt giảm theo công thức XiangqiAI
+        let newHash = prevHash;
+        let newThreads = prevThreads;
+        let changed = false;
+
+        if (prevHash > 64) {
+            newHash = Math.max(64, Math.floor(prevHash / 2));
+            changed = true;
+            try { localStorage.setItem(SENTINEL_KILL_MIN, String(prevHash)); } catch (e) {}
+        } else if (prevThreads > 1) {
+            newThreads = prevThreads - 1;
+            changed = true;
+        }
+
+        return {
+            status: "kill",
+            prevHash, prevThreads, newHash, newThreads, changed
+        };
+    },
+
+    arm(hash, threads) {
+        this.disarm();
+        const info = { hash, threads, armedAt: Date.now() };
+        this.writePending(info);
+        
+        // Nhịp tim 5s
+        this.heartbeatTimer = setInterval(() => {
+            if (this.armedInfo) {
+                this.armedInfo.armedAt = Date.now();
+                this.writePending(this.armedInfo);
+            }
+        }, 5000);
+    },
+
+    disarm() {
+        if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
+        if (this.settleTimer) clearTimeout(this.settleTimer);
+        this.heartbeatTimer = null;
+        this.settleTimer = null;
+        this.armedInfo = null;
+        try { localStorage.removeItem(SENTINEL_KEY); } catch (e) {}
+    },
+
+    onReadyOk() {
+        if (!this.armedInfo) return;
+        // Đợi 5 giây xem Engine có sập không, nếu sống sót thì gỡ mìn
+        if (this.settleTimer) clearTimeout(this.settleTimer);
+        this.settleTimer = setTimeout(() => {
+            console.log("✅ Sentinel: Engine sống sót an toàn. Gỡ mìn!");
+            this.disarm();
+        }, 5000);
+    }
+};
+
+// Kích hoạt lắng nghe đóng Tab để không nhận nhầm là Crash
+EngineSentinel.initLifecycle();
+
+
+// =====================================================================
+// KHỞI TẠO ĐỘNG CƠ & ÁP DỤNG GIỚI HẠN
 // =====================================================================
 function applyEngineHardwareLimits(type) {
-    const tier = getDeviceTier();
-    const isSingle = type.includes('single') || tier === 'MOBILE_LOW'; 
+    const isMobile = getDeviceTier() === 'MOBILE';
+    const isSingle = type.includes('single');
+    const isSimd = type.includes('simd');
     
-    // 1. XỬ LÝ GIỚI HẠN LUỒNG (THREADS)
-    const inputThreads = document.getElementById('input-threads');
-    const descThreads = document.getElementById('desc-threads');
-    let maxThreads = 1;
-    
-    if (!isSingle) {
-        if (navigator.deviceMemory) {
-            maxThreads = Math.max(1, Math.floor(navigator.deviceMemory / 2));
-        } else if (navigator.hardwareConcurrency) {
-            maxThreads = Math.max(1, Math.floor(navigator.hardwareConcurrency / 2));
-        }
-        if (maxThreads > 16) maxThreads = 16;
+    // 1. CHẠY SENTINEL CHECK (Kiểm tra có bị sập lần trước không)
+    const startupStatus = EngineSentinel.checkStartup(state.aiSettings.hash, state.aiSettings.threads);
+    if (startupStatus.status === 'kill' && startupStatus.changed) {
+        console.warn(`🔥 Sentinel phát hiện Crash lần trước! Ép giảm cấu hình: Hash ${startupStatus.newHash}MB, Threads ${startupStatus.newThreads}`);
+        state.aiSettings.hash = startupStatus.newHash;
+        state.aiSettings.threads = startupStatus.newThreads;
+        storage.saveAnalysis(state.aiSettings);
+        showToast("⚠️ Trình duyệt bị tắt đột ngột do thiếu RAM. Đã tự động giảm cấu hình AI cho an toàn.");
     }
 
+    // 2. THIẾT LẬP THREADS (LUỒNG)
+    let maxThreads = 1;
+    if (!isSingle) {
+        maxThreads = (typeof navigator !== 'undefined' && navigator.hardwareConcurrency) ? navigator.hardwareConcurrency : 2;
+        if (maxThreads > 16) maxThreads = 16;
+    }
+    
+    if (state.aiSettings.threads > maxThreads) state.aiSettings.threads = maxThreads;
+
+    const inputThreads = document.getElementById('input-threads');
+    const descThreads = document.getElementById('desc-threads');
     if (inputThreads) {
         inputThreads.setAttribute('max', maxThreads);
-        if (state.aiSettings.threads > maxThreads) {
-            state.aiSettings.threads = maxThreads;
-        }
         inputThreads.value = state.aiSettings.threads;
     }
     if (descThreads) {
-        descThreads.innerText = isSingle ? `Tối đa: 1 luồng (Dành cho máy yếu)` : `Tối đa: ${maxThreads} luồng (Đã tối ưu theo RAM)`;
+        descThreads.innerText = isSingle ? `Tối đa: 1 luồng (Bản An toàn)` : `Tối đa: ${maxThreads} luồng`;
     }
 
-    // --- CẤU HÌNH YÊU CẦU 3 & 4 (GIỚI HẠN VÀ MẶC ĐỊNH DEPTH / HASH) ---
-    let maxHash, defaultHash, maxDepth, defaultDepth;
-    if (tier === 'PC') {
-        maxHash = 512; defaultHash = 128;
-        maxDepth = 100; defaultDepth = 50;
-    } else if (tier === 'MOBILE_HIGH') {
-        maxHash = 512; defaultHash = 64;
-        maxDepth = 60; defaultDepth = 30;
-    } else { // MOBILE_LOW
-        maxHash = 256; defaultHash = 32;
-        maxDepth = 30; defaultDepth = 20;
+    // 3. THIẾT LẬP HASH (BỘ NHỚ BĂM) THEO XIANGQIAI
+    let maxHash = 64; 
+    let defaultHash = 64;
+
+    if (type === 'single') {
+        maxHash = 64;
+        defaultHash = 32;
+    } else if (type === 'single_simd' || type === 'multi') {
+        maxHash = 256;
+        defaultHash = 64;
+    } else {
+        // multi_simd và multi_simd_relaxed
+        maxHash = 512;
+        defaultHash = isMobile ? 64 : 128;
     }
 
-    // 2. XỬ LÝ BẢNG BĂM (HASH)
+    // Bảo vệ các thiết bị RAM siêu yếu (Android cũ) nếu API tồn tại
+    if (navigator.deviceMemory && navigator.deviceMemory < 4) {
+        maxHash = Math.min(maxHash, 64);
+        defaultHash = 32;
+    }
+    
+    // Sentinel Ceiling (Khống chế cứng nếu đã từng sập)
+    const hashCeiling = EngineSentinel.getHashCeiling();
+    if (maxHash > hashCeiling) maxHash = hashCeiling;
+
+    if (state.aiSettings.hash > maxHash) state.aiSettings.hash = maxHash;
+
     const inputHash = document.getElementById('input-hash');
     if (inputHash) {
         inputHash.setAttribute('max', maxHash);
         if (!storage.getAnalysis() || !storage.getAnalysis().hash) {
             state.aiSettings.hash = defaultHash; 
         }
-        if (state.aiSettings.hash > maxHash) state.aiSettings.hash = maxHash;
         inputHash.value = state.aiSettings.hash;
     }
 
-    // 3. XỬ LÝ ĐỘ SÂU (DEPTH)
+    // 4. THIẾT LẬP ĐỘ SÂU (DEPTH) & LƯU LẠI
+    let maxDepth = 255;
     const inputDepth = document.getElementById('input-depth');
     if (inputDepth) {
         inputDepth.setAttribute('max', maxDepth);
-        if (!storage.getAnalysis() || !storage.getAnalysis().depth) {
-            state.aiSettings.depth = defaultDepth; 
-        }
         if (state.aiSettings.depth > maxDepth) state.aiSettings.depth = maxDepth;
         inputDepth.value = state.aiSettings.depth;
     }
     
     storage.saveAnalysis(state.aiSettings); 
 
-    // 4. [THÊM MỚI] ẨN NÚT "ĐI NGAY" NẾU LÀ BẢN SINGLE
+    // 5. ẨN/HIỆN NÚT "ĐI NGAY"
     const btnGoInstant = document.getElementById('btn-go-instant');
-    if (btnGoInstant) {
-        if (isSingle) {
-            // Ẩn hoàn toàn khỏi thanh toolbar
-            btnGoInstant.style.display = 'none'; 
-        } else {
-            // Trả lại hiển thị mặc định. Các class như hide-on-vsbot 
-            // có chứa !important trong CSS nên sẽ không bị xung đột.
-            btnGoInstant.style.display = ''; // Sửa btn thành btnGoInstant
-        }
-    }
+    if (btnGoInstant) btnGoInstant.style.display = isSingle ? 'none' : ''; 
 }
 
 export async function initPikafish(forceType = null) {
@@ -218,14 +298,13 @@ export async function initPikafish(forceType = null) {
     currentWasmType = type;
     //console.log("🚀 Bắt đầu Khởi tạo Pikafish phiên bản:", type);
 
-    // KÍCH HOẠT GIỚI HẠN UI NGAY TẠI ĐÂY
     applyEngineHardwareLimits(type);
-
-    // Kích hoạt lưới an toàn bắt lỗi iOS
     attachCrashHandlers();
 
     const basePath = window.location.href.replace(/\/[^\/]*$/, '');
     //console.log("Base Path:", basePath);
+
+    EngineSentinel.arm(state.aiSettings.hash, state.aiSettings.threads);
 
     // -----------------------------------------------------------------
     // PHÂN LUỒNG 1: BẢN MULTI (DÙNG <SCRIPT> TẢI TRỰC TIẾP LÊN MAIN THREAD)
@@ -234,12 +313,10 @@ export async function initPikafish(forceType = null) {
         const scriptUrl = `${basePath}/engines/${type}/pikafish.js`;
         //console.log("Tải file script Multi tại:", scriptUrl);
         
-        // Tạo thẻ script để tải module
         const script = document.createElement('script');
         script.src = scriptUrl;
         script.onload = () => {
             //console.log("Script Multi đã tải xong, đang gọi window.Pikafish()");
-            // Khi file JS tải xong, hàm Pikafish() sẽ khả dụng ở window
             window.Pikafish({
                 locateFile: function(path) {
                     let finalPath = path.endsWith('.data') ? `${basePath}/engines/${path}` : `${basePath}/engines/${type}/${path}`;
@@ -254,6 +331,7 @@ export async function initPikafish(forceType = null) {
                 currentEngineInstance = module;
                 state.engineModule = {
                     sendCommand: (cmd) => {
+                        console.log('%c[GUI -> ENGINE] ' + cmd, 'color: #1a73e8; font-weight: bold;');
                         if (typeof module.send_command === 'function') module.send_command(cmd);
                         else if (typeof module.sendCommand === 'function') module.sendCommand(cmd);
                     }
@@ -270,7 +348,6 @@ export async function initPikafish(forceType = null) {
     // -----------------------------------------------------------------
     else {
         //console.log("Chuẩn bị tạo Base64 Worker cho bản Single...");
-        // Viết code worker thuần túy dạng Text
         const workerScript = `
             var EngineInstance = null;
             self.onmessage = function (e) {
@@ -318,7 +395,6 @@ export async function initPikafish(forceType = null) {
             
             URL.revokeObjectURL(blobUrl);
 
-            // [THÊM MỚI] Bắt lỗi file worker bị crash
             engineWorker.onerror = (err) => {
                 console.error("Worker Object Error (Main Thread bắt được):", err.message || err);
                 onEngineError("Worker Object Error: " + (err.message || err));
@@ -326,14 +402,13 @@ export async function initPikafish(forceType = null) {
 
             currentEngineInstance = engineWorker;
 
-            // Xử lý Gửi lệnh (Giả lập interface)
             state.engineModule = {
                 sendCommand: (cmd) => {
+                    console.log('%c[GUI -> ENGINE] ' + cmd, 'color: #1a73e8; font-weight: bold;');
                     engineWorker.postMessage({ command: cmd });
                 }
             };
 
-            // Lắng nghe kết quả từ Worker
             engineWorker.onmessage = (e) => {
                 if (e.data.debug) {
                     //console.log("[Worker Debug]:", e.data.debug);
@@ -348,7 +423,6 @@ export async function initPikafish(forceType = null) {
                 }
             };
 
-            // Gửi lệnh khởi tạo
             //console.log("Gửi lệnh init tới Worker...");
             engineWorker.postMessage({ wasm_type: type, basePath: basePath });
         } catch (e) {
@@ -358,21 +432,21 @@ export async function initPikafish(forceType = null) {
     }
 }
 
-// Hàm gọi khi Engine load thành công
 function onEngineReady(type) {
     state.engineModule.sendCommand("uci");
+    state.engineModule.sendCommand("setoption name Repetition Rule value AsianRule");
+    state.engineModule.sendCommand("setoption name Sixty Move Rule value false");
     state.engineModule.sendCommand("isready");
+
+    EngineSentinel.onReadyOk();
     
-    // Tắt giao diện Loading Overlay
     const overlay = document.getElementById('loading-overlay');
     if (overlay) { 
         overlay.style.opacity = '0'; 
         setTimeout(() => { overlay.style.display = 'none'; }, 500); 
     }
 
-    // NẾU CÓ LỆNH ĐANG CHỜ DO VỪA BỊ "KILL & RESTART"
     if (pendingAction) {
-        // Nạp setting tĩnh và chạy tiếp lệnh
         if (state.appMode !== 'vsbot') {
             state.engineModule.sendCommand(`setoption name Skill Level value ${state.aiSettings.skill}`);
             state.engineModule.sendCommand(`setoption name MultiPV value ${state.aiSettings.multiPV}`);
@@ -384,7 +458,6 @@ function onEngineReady(type) {
     }
 }
 
-// Hàm gọi khi Engine load lỗi
 function onEngineError(err) {
     console.error("Lỗi khởi tạo AI (Hàm onEngineError):", err);
     const overlay = document.getElementById('loading-overlay');
@@ -392,26 +465,63 @@ function onEngineError(err) {
 }
 export function selectHumanLikeMove(parsedMultiPVList, currentLevelData) {
     if (!parsedMultiPVList || parsedMultiPVList.length === 0) return null;
+    
     const pv1 = parsedMultiPVList[0];
+    
+    // 1. CHỐNG BỎ LỠ SÁT CỤC: Nếu có cơ hội chiếu bí, đi ngay lập tức
     if (pv1.isMate || parsedMultiPVList.some(pv => pv.isMate)) {
-        return { selectedMove: pv1.move, fakeDelayMs: getRandomDelay(0.5, 1.5) };
+        return pv1.move;
     }
-    const probs = currentLevelData.pvProbabilities;
-    let roll = Math.random(); let cumulative = 0.0; let selectedIndex = 0;
-    for (let i = 0; i < probs.length; i++) {
-        cumulative += probs[i];
-        if (roll <= cumulative) { selectedIndex = i; break; }
-    }
-    if (selectedIndex >= parsedMultiPVList.length) selectedIndex = parsedMultiPVList.length - 1;
-    let selectedPv = parsedMultiPVList[selectedIndex];
-    const cpDrop = pv1.cp - selectedPv.cp; 
-    if (cpDrop > currentLevelData.maxCentipawnDrop) selectedPv = pv1; 
-    return { selectedMove: selectedPv.move, fakeDelayMs: getRandomDelay(currentLevelData.minFakeThinkTime, currentLevelData.maxFakeThinkTime) };
-}
 
-function getRandomDelay(minSeconds, maxSeconds) {
-    const minMs = minSeconds * 1000; const maxMs = maxSeconds * 1000;
-    return Math.floor(Math.random() * (maxMs - minMs + 1) + minMs);
+    // 2. NGOẠI LỆ: Nếu bản thân PV1 đã vượt quá giới hạn "Điểm xấu tối đa" 
+    if (pv1.cp < currentLevelData.maxBadScore) {
+        return pv1.move; 
+    }
+
+    // 3. LỌC CÁC NƯỚC ĐI ĐẠT CHUẨN VÀ TÍNH TỔNG XÁC SUẤT GỐC CỦA CHÚNG
+    let validMoves = [];
+    let sumValidProbs = 0.0;
+    const probs = currentLevelData.pvProbabilities;
+
+    for (let i = 0; i < parsedMultiPVList.length; i++) {
+        if (i >= probs.length) break; // Đề phòng lỗi thiếu mảng
+
+        const pv = parsedMultiPVList[i];
+        const baseProb = probs[i];
+
+        // Chỉ giữ lại những nước có điểm số lớn hơn hoặc bằng maxBadScore
+        if (pv.cp >= currentLevelData.maxBadScore) {
+            validMoves.push({ pv: pv, baseProb: baseProb });
+            sumValidProbs += baseProb;
+        }
+    }
+
+    // Fallback an toàn (Mặc dù logic ở bước 2 đã chặn trường hợp mảng rỗng)
+    if (validMoves.length === 0) return pv1.move;
+
+    // 4. QUAY XÚC XẮC VỚI XÁC SUẤT MỚI ĐÃ ĐƯỢC CHUẨN HÓA (Proportional Redistribution)
+    let roll = Math.random(); 
+    let cumulative = 0.0; 
+    let selectedPv = validMoves[validMoves.length - 1].pv; // Mặc định là biến cuối cùng
+
+    for (let i = 0; i < validMoves.length; i++) {
+        // Trọng số mới = Xác suất gốc / Tổng xác suất của các PV hợp lệ
+        let newProb = validMoves[i].baseProb / sumValidProbs;
+        cumulative += newProb;
+
+        if (roll <= cumulative) { 
+            selectedPv = validMoves[i].pv; 
+            break; 
+        }
+    }
+
+    // 5. CHỐNG ĐI LỖI TƯƠNG ĐỐI (Max Centipawn Drop), Nếu nước vừa quay trúng lại bị chênh lệch quá lớn so với nước tốt nhất (PV1)
+    const cpDrop = pv1.cp - selectedPv.cp; 
+    if (cpDrop > currentLevelData.maxCentipawnDrop) {
+        selectedPv = pv1; 
+    }
+    
+    return selectedPv.move;
 }
 
 export function applyEngineSettings() {
@@ -424,6 +534,11 @@ let currentCloudFetchId = 0;
 export async function fetchCloudBook(fen) {
     const isRedTurn = fen.split(" ")[1] === "w";
     const isAITurn = (isRedTurn && state.aiPlaysRed) || (!isRedTurn && state.aiPlaysBlack);
+
+    if (isAITurn && (state.appMode === 'puzzle' || state.appMode === 'memorize')) {
+        triggerEngineOnly();
+        return;
+    }
 
     const container = document.getElementById('cloudbook-list-container');
     if (!container) return;
@@ -501,7 +616,7 @@ export async function fetchCloudBook(fen) {
 // --- HÀM RENDER & XỬ LÝ CHUNG CHO CẢ CLOUD VÀ LOCAL ---
 function handleBookResults(movesList, isAITurn, isRedTurn, container, fen) {
     const currentRoundNum = parseInt(fen.split(" ")[5]) || 1;
-    let effectiveCloudLimit = state.appMode === 'vsbot' ? 1 : state.appSettings.cloudBookLimit;
+    let effectiveCloudLimit = state.appMode === 'vsbot' ? 0 : state.appSettings.cloudBookLimit;
     const canUseBook = state.appSettings.cloudBookEnabled && (currentRoundNum <= effectiveCloudLimit);
 
     // TRƯỜNG HỢP 1: Lượt AI và có sách hợp lệ
@@ -566,7 +681,7 @@ function handleBookResults(movesList, isAITurn, isRedTurn, container, fen) {
 }
 
 export function triggerEngineEvaluation() {
-    if (!state.engineModule || state.isEditMode) return;
+    if (!state.engineModule || state.isEditMode || state.isChartRunning || state.isChartDrawing) return;
     pendingAction = 'eval';
     handleStateTransition();
 }
@@ -623,13 +738,9 @@ function executePendingAction() {
             const isRedTurn = state.currentNode.fen.split(" ")[1] === "w";
             const willAIPlay = (isRedTurn && state.aiPlaysRed) || (!isRedTurn && state.aiPlaysBlack);
 
-            // NẾU CHỈ LÀ PHÂN TÍCH (Không phải lượt Máy tự đi)
-            // -> Bật Pikafish tính toán NGAY LẬP TỨC, không cần đợi Cloud Book!
             if (!willAIPlay && state.isAnalyzing) {
                 triggerEngineOnly();
             }
-
-            // Gọi Cloud Book chạy ngầm (Nó sẽ tự update UI lúc tải xong)
             fetchCloudBook(state.currentNode.fen);
         }
         else if (action === 'hint') {
@@ -640,31 +751,46 @@ function executePendingAction() {
             state.engineModule.sendCommand(`setoption name MultiPV value 1`); 
             state.pvLines = []; clearArrow(); renderMultiPVList();
 
-            state.engineModule.sendCommand(`position fen ${state.currentNode.fen}`);
+            const historyStr = getMoveHistoryString(state.currentNode);
+            if (historyStr.length > 0) {
+                state.engineModule.sendCommand(`position fen ${state.rootNode.fen} moves ${historyStr}`);
+            } else {
+                state.engineModule.sendCommand(`position fen ${state.currentNode.fen}`);
+            }
             state.engineModule.sendCommand(`go depth ${profile.searchDepth} movetime ${profile.maxMovetimeMs}`);
             isEngineSearching = true; 
         }
         else if (action === 'analyze') {
             state.engineModule.sendCommand(`setoption name Skill Level value ${state.aiSettings.skill}`);
             state.engineModule.sendCommand(`setoption name MultiPV value ${state.aiSettings.multiPV}`);
+
             state.pvLines = []; clearArrow(); renderMultiPVList();
 
-            state.engineModule.sendCommand(`position fen ${state.currentNode.fen}`);
-            
-            // YÊU CẦU 2: Giới hạn Depth của nút Phân Tích
-            const tier = getDeviceTier();
-            let analyzeDepth = 100;
-            if (tier === 'MOBILE_HIGH') analyzeDepth = 60;
-            else if (tier === 'MOBILE_LOW') analyzeDepth = 30;
-            
-            state.engineModule.sendCommand(`go depth ${analyzeDepth}`);
+            const historyStr = getMoveHistoryString(state.currentNode);
+            if (historyStr.length > 0) {
+                state.engineModule.sendCommand(`position fen ${state.rootNode.fen} moves ${historyStr}`);
+            } else {
+                state.engineModule.sendCommand(`position fen ${state.currentNode.fen}`);
+            }
+                        
+            state.engineModule.sendCommand(`go infinite`);
             isEngineSearching = true; 
         }
-        // THÊM MỚI HÀNH ĐỘNG GO_INSTANT
         else if (action === 'go_instant') {
-            state.engineModule.sendCommand(`position fen ${state.currentNode.fen}`); 
+            const historyStr = getMoveHistoryString(state.currentNode);
+            if (historyStr.length > 0) {
+                state.engineModule.sendCommand(`position fen ${state.rootNode.fen} moves ${historyStr}`);
+            } else {
+                state.engineModule.sendCommand(`position fen ${state.currentNode.fen}`);
+            } 
             state.engineModule.sendCommand("go movetime 100"); 
             isEngineSearching = true;
+        }
+        else if (action === 'start_chart') {
+            if (state.rootNode && state.rootNode.children.length > 0) {
+                chartCurrentNode = state.rootNode.children[state.rootNode.mainLineIndex] || state.rootNode.children[0];
+                if (chartCurrentNode) analyzeNextChartNode();
+            }
         }
     }, 10);
 }
@@ -681,7 +807,12 @@ function triggerEngineOnly() {
 
     state.pvLines = []; clearArrow(); renderMultiPVList();
 
-    state.engineModule.sendCommand(`position fen ${state.currentNode.fen}`);
+    const historyStr = getMoveHistoryString(state.currentNode);
+    if (historyStr.length > 0) {
+        state.engineModule.sendCommand(`position fen ${state.rootNode.fen} moves ${historyStr}`);
+    } else {
+        state.engineModule.sendCommand(`position fen ${state.currentNode.fen}`);
+    }
     
     const isRedTurn = state.currentNode.fen.split(" ")[1] === "w";
     const willAIPlay = (isRedTurn && state.aiPlaysRed) || (!isRedTurn && state.aiPlaysBlack);
@@ -711,12 +842,7 @@ function triggerEngineOnly() {
             isEngineSearching = true; 
             showAILoading(); 
         } else if (state.isAnalyzing) {
-            const tier = getDeviceTier();
-            let analyzeDepth = 100;
-            if (tier === 'MOBILE_HIGH') analyzeDepth = 60;
-            else if (tier === 'MOBILE_LOW') analyzeDepth = 30;
-            
-            state.engineModule.sendCommand(`go depth ${analyzeDepth}`);
+            state.engineModule.sendCommand(`go infinite`);
             isEngineSearching = true; 
         }
     }
@@ -738,11 +864,16 @@ function renderMultiPVList() {
         let timeStr = line.time ? (line.time / 1000).toFixed(1) + "s" : "0.0s";
         let scoreStr = line.scoreText || "0";
         let blockColor = (line.relativeScore >= 0) ? "#1a73e8" : "#d32f2f";
+        let winRateStr = calculateWinRatePercentage(line.relativeScore);
         html += `
             <div class="multipv-item" style="color: ${blockColor};">
                 <div class="multipv-header">
                     <span>Biến số ${line.rank}</span>
                     <span class="multipv-bestmove">${notation}</span>
+                </div>
+                <div class="multipv-details" style="color: inherit; margin-top: 2px;">
+                    <span>Tỉ lệ thắng:</span>
+                    <span style="font-weight: bold; font-size: 14.5px;">${winRateStr}</span>
                 </div>
                 <div class="multipv-details" style="color: inherit;">
                     <span>${colorText}: <strong>${scoreStr}</strong></span>
@@ -758,38 +889,75 @@ function renderMultiPVList() {
 }
 
 export function handleEngineOutput(text) {
+    console.log('%c[ENGINE -> GUI] ' + text, 'color: #008a3e;');
     if (state.isChartRunning) {
         if (text.includes("score cp")) {
             const cpMatch = text.match(/score cp (-?\d+)/);
-            if (cpMatch) chartLatestScore = parseInt(cpMatch[1]);
+            if (cpMatch) {
+                chartLatestCP = parseInt(cpMatch[1]);
+                chartLatestMate = null;
+            }
         }
         if (text.includes("score mate")) {
             const mateMatch = text.match(/score mate (-?\d+)/);
-            if (mateMatch) chartLatestScore = parseInt(mateMatch[1]) > 0 ? 1000 : -1000;
+            if (mateMatch) {
+                chartLatestMate = parseInt(mateMatch[1]);
+                chartLatestCP = null;
+            }
         }
 
         if (text.startsWith("bestmove")) {
-            clearTimeout(chartTimerId);
+            if (chartTimerId) {
+                clearTimeout(chartTimerId);
+                chartTimerId = null;
+            }
             isEngineSearching = false;
 
+            if (!chartCurrentNode) return;
+
+            const parts = text.split(" ");
+            const bestMoveStr = parts[1] && parts[1] !== "(none)" ? parts[1].trim() : null;
+
             const isRedTurnNow = chartCurrentNode.fen.split(" ")[1] === "w";
-            const absoluteScore = isRedTurnNow ? chartLatestScore : -chartLatestScore;
-            const isRedMoved = !isRedTurnNow; 
+            const rawScoreObj = { cp: chartLatestCP, mate: chartLatestMate };
+            const rawNorm = normalizeScore(rawScoreObj);
+            const absoluteScore = isRedTurnNow ? rawNorm : -rawNorm;
+
+            chartCurrentNode.scoreObj = rawScoreObj;
+            chartCurrentNode.normalizedScore = absoluteScore;
+            chartCurrentNode.aiBestMove = bestMoveStr;
+
+            if (chartCurrentNode.parent && chartCurrentNode.parent.normalizedScore !== null) {
+                const bestScore = chartCurrentNode.parent.normalizedScore;
+                const playedScore = absoluteScore;
+                const turnColor = chartCurrentNode.parent.fen.split(" ")[1]; // w hoặc b
+                
+                const moveScore = evaluateMoveScore(bestScore, playedScore, turnColor);
+
+                const isMissedWin = (turnColor === 'w' && bestScore >= 29000 && playedScore < 29000) || 
+                                    (turnColor === 'b' && bestScore <= -29000 && playedScore > -29000);
+
+                chartCurrentNode.moveScore = moveScore;
+                chartCurrentNode.classification = classifyMove(moveScore, isMissedWin);
+            }
+
+            const graphScore = Math.max(-2000, Math.min(2000, absoluteScore));
+            const isRedMoved = !isRedTurnNow;
             
-            addChartPoint(absoluteScore, isRedMoved);
+            if (chartCurrentNode !== state.rootNode) {
+                addChartPoint(graphScore, isRedMoved, chartCurrentNode.classification);
+            }
 
             if (chartCurrentNode.children.length > 0) {
                 chartCurrentNode = chartCurrentNode.children[chartCurrentNode.mainLineIndex];
                 
+                chartLatestCP = null;
+                chartLatestMate = null;
+
                 setTimeout(() => {
-                    // CHỈ CHẠY TIẾP NẾU CỜ DRAWING CÒN ĐANG BẬT
-                    if (state.isChartDrawing) {
-                        analyzeNextChartNode(); 
-                    }
+                    if (state.isChartDrawing) analyzeNextChartNode(); 
                 }, 100); 
-                
             } else {
-                // Đã hết nước đi -> Gọi hàm mở khóa thay vì tắt biểu đồ
                 import('./events.js').then(ev => ev.finishChartDrawing());
             }
         }
@@ -887,17 +1055,11 @@ export function handleEngineOutput(text) {
                     move: p.bestMove, cp: p.relativeScore, isMate: p.scoreText.includes('chiếu hết')
                 }));
                 parsedMultiPVList.sort((a, b) => b.cp - a.cp);
-                const result = selectHumanLikeMove(parsedMultiPVList, currentLevelData);
+    
+                const resultMove = selectHumanLikeMove(parsedMultiPVList, currentLevelData);
 
-                if (result) {
-                    setTimeout(() => { 
-                        state.pendingAIMove = result.selectedMove; 
-                        hideAILoading();
-                    }, result.fakeDelayMs);
-                } else {
-                    state.pendingAIMove = bestMove; 
-                    hideAILoading();
-                }
+                state.pendingAIMove = resultMove ? resultMove : bestMove; 
+                hideAILoading();
             } else {
                 state.pendingAIMove = bestMove;
                 hideAILoading();
@@ -975,41 +1137,116 @@ export function forceStopEngine() {
     }
 }
 
-export function startChartAnalysisProcess() {
+export async function startChartAnalysisProcess() {
     if (!state.rootNode || state.rootNode.children.length === 0) {
         import('./ui.js').then(ui => ui.showToast("Bàn cờ chưa có nước đi nào để phân tích!"));
         import('./events.js').then(ev => ev.exitChartMode());
         return;
     }
+    
+    import('./ui.js').then(ui => ui.showAILoading());
+
+    state.isChartAnalyzed = false;
+    import('./game.js').then(game => game.clearTreeAnalysisData(state.rootNode));
+
+    let tempCountNode = state.rootNode;
+    let totalNodes = 1; // Tính cả Node gốc (Start pos)
+    while (tempCountNode.children.length > 0) {
+        totalNodes++;
+        tempCountNode = tempCountNode.children[tempCountNode.mainLineIndex];
+    }
+    state.chartTotalMoves = totalNodes;
 
     initChartUI(); // Reset Canvas
+
+    if (state.engineModule) {
+        state.engineModule.sendCommand("stop");
+        state.engineModule.sendCommand(`setoption name Skill Level value 20`);
+        state.engineModule.sendCommand(`setoption name MultiPV value 1`);
+    }
+
+    // Bắt đầu vẽ luôn
+    if (state.rootNode) {
+        chartCurrentNode = state.rootNode; 
+        instantJumpToNode(chartCurrentNode, true);
+    }
     
-    // Phân tích bắt đầu từ Nước số 1
-    chartCurrentNode = state.rootNode.children[state.rootNode.mainLineIndex];
-    analyzeNextChartNode();
+    setTimeout(() => {
+        chartLatestCP = null;
+        chartLatestMate = null;
+        if (chartCurrentNode) analyzeNextChartNode();
+    }, 100);
 }
 
 function analyzeNextChartNode() {
-    // 1. Nhảy hình cờ & lịch sử về nước đang phân tích
-    instantJumpToNode(chartCurrentNode);
+    if (chartTimerId) {
+        clearTimeout(chartTimerId);
+        chartTimerId = null;
+    }
 
-    // 2. Reset thông số điểm
-    chartLatestScore = 0;
-    const maxTimeMs = state.chartSettings.time * 1000;
-    const maxDepth = state.chartSettings.depth;
+    instantJumpToNode(chartCurrentNode, true);
 
-    // 3. Gửi lệnh UCI (Luồng lấy từ config, Skill ép cứng 20)
-    state.engineModule.sendCommand(`setoption name Skill Level value 20`);
-    state.engineModule.sendCommand(`setoption name Threads value ${state.aiSettings.threads}`);
-    state.engineModule.sendCommand(`setoption name MultiPV value 1`);
+    chartLatestCP = null;
+    chartLatestMate = null;
+    chartNodeStartTime = Date.now();
     
+    const maxTimeMs = state.chartSettings.runTime * 1000;
+    const maxDepth = state.chartSettings.runDepth;
+
     state.engineModule.sendCommand(`position fen ${chartCurrentNode.fen}`);
-    state.engineModule.sendCommand(`go depth ${maxDepth}`); // Động cơ bắt đầu chạy
     
-    isEngineSearching = true;
+    setTimeout(() => {
+        if (!state.isChartDrawing) return; 
 
-    // 4. Hẹn giờ: NẾU QUÁ THỜI GIAN -> ÉP DỪNG ĐỂ LẤY KẾT QUẢ ĐANG CÓ
-    chartTimerId = setTimeout(() => {
-        if (isEngineSearching) state.engineModule.sendCommand("stop");
-    }, maxTimeMs);
+        state.engineModule.sendCommand(`go depth ${maxDepth}`); 
+        isEngineSearching = true;
+
+        chartTimerId = setTimeout(() => {
+            if (isEngineSearching && state.isChartDrawing) {
+                state.engineModule.sendCommand("stop");
+            }
+        }, maxTimeMs);
+
+    }, 50); 
+}
+
+export function hardResetEngine() {
+    console.log("🔥 Đang Hard Reset Engine & Xả RAM...");
+    isEngineSearching = false;
+    
+    if (chartTimerId) {
+        clearTimeout(chartTimerId);
+        chartTimerId = null;
+    }
+
+    if (currentEngineInstance instanceof Worker) {
+        currentEngineInstance.terminate();
+    } else if (state.engineModule && typeof state.engineModule.sendCommand === 'function') {
+        state.engineModule.sendCommand("stop"); 
+    }
+    
+    currentEngineInstance = null;
+    state.engineModule = null;
+
+    setTimeout(() => {
+        initPikafish();
+    }, 300);
+}
+
+export function restoreEngineAfterChart() {
+    console.log("Khôi phục cài đặt Engine sau khi tắt Biểu đồ...");
+    
+    if (state.engineModule) {
+        state.engineModule.sendCommand("stop");
+        state.engineModule.sendCommand(`setoption name Skill Level value ${state.aiSettings.skill}`);
+        state.engineModule.sendCommand(`setoption name MultiPV value ${state.aiSettings.multiPV}`);
+    }
+
+    isEngineSearching = false;
+
+    if (state.isAnalyzing) {
+        triggerEngineEvaluation();
+    } else {
+        pendingAction = null;
+    }
 }
