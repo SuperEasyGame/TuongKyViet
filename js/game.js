@@ -222,7 +222,8 @@ export function fastWireTree(rawNode, parent = null) {
     let node = createRawNode(fen, moveCmd, notation, isRed, roundNum, parent);
     if (rawNode.id) node.id = rawNode.id;
     if (rawNode.comment) node.comment = rawNode.comment;
-    if (rawNode.defaultIndex) node.mainLineIndex = rawNode.defaultIndex;
+    if (rawNode.defaultIndex !== undefined) node.mainLineIndex = rawNode.defaultIndex;
+    if (rawNode.mainLineIndex !== undefined) node.mainLineIndex = rawNode.mainLineIndex;
 
     let childArray = rawNode.next || rawNode.children || [];
     for (let child of childArray) {
@@ -253,7 +254,19 @@ export function loadGameFromList(index, targetPtrId = null) {
             for (let c of node.children) findNode(c);
         }
         findNode(state.rootNode);
-        if (foundNode) state.currentNode = foundNode;
+        if (foundNode) {
+            state.currentNode = foundNode;
+
+            let tempTracer = foundNode;
+            while (tempTracer.parent) {
+                let pNode = tempTracer.parent;
+                let childIdx = pNode.children.indexOf(tempTracer);
+                if (childIdx !== -1) {
+                    pNode.mainLineIndex = childIdx;
+                }
+                tempTracer = pNode;
+            }
+        }
     }
 
     ensureNodeData(state.currentNode);

@@ -6,7 +6,7 @@ import { triggerEngineEvaluation, applyEngineSettings, getDeviceTier } from './e
 import { openModal, closeModal, updateTurnToggleUI, showLoading, hideLoading, showToast, renderLibraryList, confirmDeleteLibraryItem, renderMemorizeList, syncBookTabUI } from './ui.js';
 import { finishEditing, turnOnEditMode } from './editor.js';
 import { handleImageRecognition, handleFileUpload, getMoveListAndComments, copyToClipboard, getVschessNodeTree, downloadFile, getFormattedDate, formatGameInfoString, saveGameState } from './io.js';
-import { renderBoardFull, drawBestMoveArrow, clearArrow, updateActiveMoveBadge, renderMoveHistory } from './board.js';
+import { renderBoardFull, drawBestMoveArrow, clearArrow, updateActiveMoveBadge, renderMoveHistory, getMergedCanvas } from './board.js';
 import { START_FEN, VschessErrorDict } from './config.js';
 import { uploadLocalBook, deleteLocalBook, loadLocalBookFromDB } from './localbook.js';
 
@@ -1741,6 +1741,130 @@ export function initEvents() {
             if (state.currentLibraryFolderId === "root") selectEl.value = "root";
 
             openModal('save-library-modal');
+        };
+    }
+
+    // --- XUẤT ẢNH PNG ---
+    const expPng = document.getElementById('exp-png');
+    if (expPng) {
+        expPng.onclick = () => {
+            closeModal('export-modal');
+            const canvas = getMergedCanvas();
+            if (!canvas) { showToast("❌ Lỗi xuất ảnh!"); return; }
+
+            const dataUrl = canvas.toDataURL("image/png");
+            const defaultName = state.currentGameInfo.title || "TuongKyViet";
+            const filename = `${defaultName}_${getFormattedDate()}.png`;
+
+            // Tự động tải xuống
+            const a = document.createElement('a');
+            a.href = dataUrl;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            showToast("✅ Đã xuất ảnh PNG thành công!");
+        };
+    }
+
+    // --- XUẤT ẢNH GIF ĐỘNG ---
+    const expGif = document.getElementById('exp-gif');
+    if (expGif) {
+        expGif.onclick = async () => {
+            if (typeof GIF === 'undefined') {
+                showToast("❌ Không tìm thấy thư viện tạo GIF!");
+                return;
+            }
+            closeModal('export-modal');
+            showLoading("Đang tạo ảnh GIF (0%)...");
+
+            try {
+                // Tải worker.js dạng blob để tránh lỗi CORS Web Worker (Rất quan trọng)
+                const workerReq = await fetch('https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.worker.js');
+                const workerText = await workerReq.text();
+                const workerBlob = new Blob([workerText], { type: 'application/javascript' });
+                const workerUrl = URL.createObjectURL(workerBlob);
+
+                // Lấy nhánh lịch sử hiện tại từ đầu tới điểm đang đứng
+                let path = [];
+                let curr = state.currentNode;
+                while (curr) { path.push(curr); curr = curr.parent; }
+                path.reverse();
+
+                const canvasMain = document.getElementById('chess-canvas');
+                const gif = new GIF({
+                    workers: 2,
+                    quality: 10, // Số nhỏ = chất lượng cao hơn nhưng render lâu hơn
+                    width: canvasMain.width,
+                    height: canvasMain.height,
+                    workerScript: workerUrl
+                });
+
+                // Lưu trạng thái hiện tại để phục hồi sau khi chụp ảnh xong
+                const originalNode = state.currentNode;
+
+                import('./game.js').then(async (game) => {
+                    game.forceStopAIPlayers();
+
+                    // Duyệt qua từng nước cờ
+                    for (let i = 0; i < path.length; i++) {
+                        game.instantJumpToNode(path[i], true); // Chuyển bàn cờ im lặng
+                        
+                        // Đợi canvas render xong (cần 1 khoảng delay nhỏ để vẽ)
+                        await new Promise(res => setTimeout(res, 50));
+
+                        const frameCanvas = getMergedCanvas();
+                        
+                        // Tính toán thời gian dừng (delay) cho mỗi khung hình
+                        let delay = 1000; // 1 giây mỗi nước
+                        if (i === 0) delay = 1500; // Khung đầu tiên dừng 1.5s
+                        if (i === path.length - 1) delay = 3500; // Khung cuối cùng dừng 3.5s
+
+                        gif.addFrame(frameCanvas, { delay: delay, copy: true });
+                    }
+
+                    // Phục hồi lại trạng thái ván cờ như cũ
+                    game.instantJumpToNode(originalNode, true);
+                    if (!state.isChartRunning) {
+                        import('./engine.js').then(e => e.triggerEngineEvaluation());
+                    }
+
+                    gif.on('progress', p => {
+                        const overlay = document.getElementById('loading-overlay');
+                        if (overlay) {
+                            const h2 = overlay.querySelector('h2');
+                            if (h2) h2.innerText = `Đang tạo ảnh GIF (${Math.round(p * 100)}%)...`;
+                        }
+                    });
+
+                    gif.on('finished', function(blob) {
+                        hideLoading();
+                        URL.revokeObjectURL(workerUrl); // Giải phóng RAM Worker
+
+                        const defaultName = state.currentGameInfo.title || "TuongKyViet";
+                        const filename = `${defaultName}_${getFormattedDate()}.gif`;
+
+                        // Tự động tải xuống
+                        const a = document.createElement('a');
+                        a.href = URL.createObjectURL(blob);
+                        a.download = filename;
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        URL.revokeObjectURL(a.href);
+
+                        showToast("✅ Đã xuất ảnh GIF thành công!");
+                    });
+
+                    // Bắt đầu render
+                    gif.render();
+                });
+
+            } catch (e) {
+                hideLoading();
+                showToast("❌ Lỗi mạng hoặc cấu hình khi tạo ảnh GIF!");
+                console.error(e);
+            }
         };
     }
 

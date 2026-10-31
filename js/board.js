@@ -856,3 +856,24 @@ export function updateActiveMoveBadge() {
         if (badgeSpan) badgeSpan.remove();
     }
 }
+
+export function getMergedCanvas() {
+    const canvasMain = document.getElementById('chess-canvas');
+    if (!canvasMain) return null;
+
+    const offCanvas = document.createElement('canvas');
+    offCanvas.width = canvasMain.width;
+    offCanvas.height = canvasMain.height;
+    const ctx = offCanvas.getContext('2d');
+
+    // 1. Vẽ nền bàn cờ (Lấy từ imageCache)
+    const boardImg = imageCache['board'];
+    if (boardImg) {
+        ctx.drawImage(boardImg, 0, 0, offCanvas.width, offCanvas.height);
+    }
+
+    // 2. Vẽ quân cờ và các hiệu ứng mũi tên/chấm xanh đè lên trên
+    ctx.drawImage(canvasMain, 0, 0);
+
+    return offCanvas;
+}
