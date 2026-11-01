@@ -359,8 +359,33 @@ export function initEvents() {
     const btnHint = document.getElementById('btn-hint');
     if (btnHint) {
         btnHint.onclick = () => {
-            if (btnHint.classList.contains('disabled') || !state.engineModule) return;
+            if (btnHint.classList.contains('disabled')) return;
             
+            if (state.appMode === 'memorize') {
+                const children = state.currentNode.children;
+                if (children.length === 0) return; // Đã đi đến cuối nhánh, không còn gì để gợi ý
+
+                let targetNode = null;
+                
+                // Nếu User setup chỉ học nhánh chính -> Lấy mặc định nhánh đầu tiên (index 0)
+                if (state.memorizeSettings.path === 'main') {
+                    targetNode = children[0];
+                } 
+                // Nếu User setup Tự Chọn hoặc Random -> Random 1 nhánh hợp lệ trong số các biến
+                else {
+                    const randIdx = Math.floor(Math.random() * children.length);
+                    targetNode = children[randIdx];
+                }
+
+                // Tự động đi quân vừa được lấy ra
+                import('./game.js').then(module => {
+                    module.executeForwardStep(targetNode);
+                });
+                return;
+            }
+
+            if (!state.engineModule) return; // Các chế độ khác phải có AI mới chạy được
+
             if (state.appMode === 'puzzle') {
                 btnHint.classList.add('disabled');
                 

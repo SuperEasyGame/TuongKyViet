@@ -913,7 +913,6 @@ body.mode-memorize #btn-import,
 body.mode-memorize #btn-export,
 body.mode-memorize #btn-edit, 
 body.mode-memorize #btn-peek, 
-body.mode-memorize #btn-hint,
 body.mode-memorize #panel-history,
 body.mode-memorize .ai-tab-btn:not([data-tab="title"]), 
 body.mode-memorize #tab-pikafish,
@@ -930,7 +929,8 @@ body.mode-memorize #tab-title {
 }
 
 /* 3. Hiện nút Đi Lại (Undo) */
-body.mode-memorize #btn-undo { display: flex !important; }
+body.mode-memorize #btn-undo,
+body.mode-memorize #btn-hint { display: flex !important; }
 
 /* 4. Vô hiệu hóa NavBar (Ép hiển thị, làm mờ và cấm click tuyệt đối) */
 body.mode-memorize #nav-bar,
